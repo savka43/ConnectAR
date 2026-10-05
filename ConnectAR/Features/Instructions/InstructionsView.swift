@@ -3,10 +3,21 @@ import SwiftUI
 struct InstructionsView: View {
     @EnvironmentObject private var session: AssemblySession
 
+    @State private var query = ""
+
+    private var results: [AssemblyStep] {
+        let search = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !search.isEmpty else { return session.board.steps }
+        return session.board.steps.filter { step in
+            [step.title, step.connector.name, step.connector.component.name]
+                .contains { $0.localizedStandardContains(search) }
+        }
+    }
+
     var body: some View {
         List {
             Section(session.board.name) {
-                ForEach(session.board.steps) { step in
+                ForEach(results) { step in
                     NavigationLink { InstructionDetailView(step: step) } label: {
                         Label {
                             VStack(alignment: .leading, spacing: 4) {
@@ -19,6 +30,12 @@ struct InstructionsView: View {
             }
         }
         .navigationTitle("Подсказки")
+        .searchable(text: $query, prompt: "Компонент или разъём")
+        .overlay {
+            if results.isEmpty {
+                ContentUnavailableView.search(text: query)
+            }
+        }
     }
 }
 
@@ -41,9 +58,14 @@ struct InstructionDetailView: View {
                 if !session.selectedStepIDs.contains(step.id) {
                     Button("Добавить в мою сборку") { session.select(step, included: true) }
                 } else {
-                Button(session.completedSteps.contains(step.id) ? "Снять отметку выполнения" : "Отметить выполненным") {
-                    session.toggle(step)
-                }
+                    Button(session.completedSteps.contains(step.id) ? "Снять отметку выполнения" : "Отметить выполненным") {
+                        session.toggle(step)
+                    }
+                    if session.completedSteps.contains(step.id), let next = session.nextStep {
+                        NavigationLink("Следующий шаг: \(next.title)") {
+                            InstructionDetailView(step: next)
+                        }
+                    }
                 }
             }
         }

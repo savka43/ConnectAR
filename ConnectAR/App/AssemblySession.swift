@@ -14,6 +14,7 @@ final class AssemblySession: ObservableObject {
     }
 
     var steps: [AssemblyStep] { board.steps.filter { selectedStepIDs.contains($0.id) } }
+    var nextStep: AssemblyStep? { steps.first { !completedSteps.contains($0.id) } }
     var progress: Double { steps.isEmpty ? 0 : Double(completedSteps.count) / Double(steps.count) }
 
     init(board: Motherboard = DemoAssembly.board, defaults: UserDefaults = .standard) {

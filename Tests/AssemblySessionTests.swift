@@ -11,9 +11,11 @@ struct AssemblySessionTests {
         let ram = board.steps[0]
         let initial = AssemblySession(defaults: defaults)
         precondition(initial.steps.count == board.steps.count && initial.progress == 0)
+        precondition(initial.nextStep == ram)
         initial.toggle(ram)
         let restored = AssemblySession(defaults: defaults)
         precondition(restored.completedSteps == [ram.id], "Completion must survive a new session")
+        precondition(restored.nextStep == board.steps[1], "Resume must skip completed steps after relaunch")
         restored.select(ram, included: false)
         let filtered = AssemblySession(defaults: defaults)
         precondition(!filtered.steps.contains(ram) && filtered.completedSteps.isEmpty)
@@ -21,11 +23,12 @@ struct AssemblySessionTests {
         precondition(filtered.completedSteps.isEmpty, "Excluded steps cannot be marked done")
         filtered.select(ram, included: true)
         for step in filtered.steps { filtered.toggle(step) }
-        precondition(filtered.progress == 1)
+        precondition(filtered.progress == 1 && filtered.nextStep == nil)
         filtered.resetProgress()
+        precondition(filtered.nextStep == ram)
         precondition(AssemblySession(defaults: defaults).completedSteps.isEmpty)
         for step in board.steps { filtered.select(step, included: false) }
-        precondition(filtered.steps.isEmpty && filtered.progress == 0)
+        precondition(filtered.steps.isEmpty && filtered.progress == 0 && filtered.nextStep == nil)
         precondition(AssemblySession(defaults: defaults).steps.isEmpty, "Empty selection must persist")
         let otherBoard = Motherboard(id: "other", name: "Other", manualURL: board.manualURL, steps: board.steps)
         precondition(AssemblySession(board: otherBoard, defaults: defaults).steps.count == board.steps.count,

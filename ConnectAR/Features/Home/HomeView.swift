@@ -12,6 +12,24 @@ struct HomeView: View {
                 Text("Выберите компонент, изучите разъём и отметьте выполненный шаг.")
                     .foregroundStyle(.secondary)
             }
+            Section("Продолжить сборку") {
+                if let step = session.nextStep {
+                    NavigationLink { InstructionDetailView(step: step) } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(step.title).font(.headline)
+                                Text(step.connector.name).foregroundStyle(.secondary)
+                            }
+                        } icon: { Image(systemName: step.connector.component.symbol) }
+                    }
+                } else if session.steps.isEmpty {
+                    NavigationLink("Выберите компоненты для начала") { BuildConfigurationView() }
+                } else {
+                    Label("Все выбранные шаги выполнены", systemImage: "checkmark.seal.fill")
+                        .foregroundStyle(.teal)
+                    Button("Посмотреть результат") { selection = .checklist }
+                }
+            }
             Section("Плата прототипа") {
                 Text(session.board.name).font(.headline)
                 Text("Сценарий подключения компонентов")
