@@ -38,8 +38,12 @@ struct InstructionDetailView: View {
                 Link("Руководство платы • стр. \(step.manualPage)", destination: session.board.manualURL)
             }
             Section {
+                if !session.selectedStepIDs.contains(step.id) {
+                    Button("Добавить в мою сборку") { session.select(step, included: true) }
+                } else {
                 Button(session.completedSteps.contains(step.id) ? "Снять отметку выполнения" : "Отметить выполненным") {
                     session.toggle(step)
+                }
                 }
             }
         }
