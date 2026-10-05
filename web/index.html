@@ -2,40 +2,109 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>ConnectAR</title>
   <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
 </head>
 <body>
   <header>
     <h1>ConnectAR</h1>
     <select id="board" aria-label="Материнская плата"></select>
+    <nav role="tablist" aria-label="Разделы">
+      <button type="button" role="tab" data-tab="assembly" aria-selected="true">Сборка</button>
+      <button type="button" role="tab" data-tab="camera" aria-selected="false">Камера</button>
+    </nav>
   </header>
 
   <main>
-    <section id="ar-panel" hidden>
-      <button id="ar-start" type="button">Открыть камеру</button>
-      <div id="ar-container"></div>
-    </section>
+    <section id="tab-assembly" role="tabpanel">
+      <h2>Что устанавливаем</h2>
+      <div id="components" class="chips"></div>
 
-    <section>
+      <h2>Шаги</h2>
       <p id="progress"></p>
       <ol id="steps"></ol>
       <button id="reset" type="button">Сбросить прогресс</button>
     </section>
 
+    <section id="tab-camera" role="tabpanel" hidden>
+      <div id="camera-viewport">
+        <div id="ar-view"></div>
+        <div id="ar-labels" class="labels-layer"></div>
+        <div id="photo-view" hidden></div>
+
+        <div id="camera-loading" class="overlay" hidden>
+          <p id="camera-loading-text"></p>
+          <progress id="camera-progress" max="1"></progress>
+        </div>
+
+        <div id="camera-hint" class="hint" hidden>
+          <p id="camera-hint-text"></p>
+          <p id="camera-tips" hidden>
+            Включите свет поярче, держите телефон в 30–60 см от платы, плата должна целиком попасть в кадр.
+            Поддерживается <span id="camera-tips-board"></span>.
+          </p>
+        </div>
+
+        <div id="camera-notice" class="overlay" hidden>
+          <p id="camera-notice-text"></p>
+          <button id="camera-retry" type="button" hidden></button>
+        </div>
+
+        <p id="frozen-note" class="hint" hidden>Кадр заморожен — приближайте и нажимайте на метки</p>
+      </div>
+
+      <div id="place-bar" hidden>
+        <p id="place-hint"></p>
+        <div id="place-chips" class="chips"></div>
+      </div>
+
+      <div class="toolbar">
+        <button id="freeze" type="button" class="primary">Заморозить</button>
+        <button id="to-photo" type="button">Режим фото</button>
+        <button id="back-to-ar" type="button" class="primary">Вернуться в AR</button>
+        <button id="take-photo" type="button" class="primary">Сделать фото</button>
+        <button id="pick-photo" type="button">Выбрать из галереи</button>
+      </div>
+      <input id="file-capture" type="file" accept="image/*" capture="environment" hidden>
+      <input id="file-gallery" type="file" accept="image/*" hidden>
+    </section>
+
     <p id="error" role="alert" hidden></p>
   </main>
 
+  <dialog id="step-dialog" aria-labelledby="dialog-title">
+    <p id="dialog-badge" class="badge" hidden>Текущий шаг</p>
+    <h2 id="dialog-title"></h2>
+    <p id="dialog-connector" class="muted"></p>
+    <p id="dialog-instruction"></p>
+    <a id="dialog-manual" target="_blank" rel="noopener"></a>
+    <div class="toolbar">
+      <button id="dialog-toggle" type="button"></button>
+      <button id="dialog-close" type="button">Закрыть</button>
+    </div>
+  </dialog>
+
+  <p id="toast" role="status" hidden></p>
+
   <template id="step-template">
     <li>
-      <label><input type="checkbox"> <strong class="title"></strong></label>
-      <p class="connector"></p>
-      <p class="instruction"></p>
-      <a class="manual" target="_blank" rel="noopener"></a>
+      <input type="checkbox">
+      <button type="button" class="open">
+        <strong class="title"></strong>
+        <span class="connector"></span>
+      </button>
     </li>
   </template>
 
-  <script type="module" src="app.js"></script>
+  <script type="module" src="src/app.js"></script>
 </body>
 </html>

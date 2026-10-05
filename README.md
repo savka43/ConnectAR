@@ -28,4 +28,4 @@ AR-помощник для сборки компьютера. Наведите �
 
 ## CI
 
-`ios.yml` — тесты и сборка iOS · `shared-boards.yml` — валидация данных плат · `web.yml` — сборка и деплой на GitHub Pages.
+`ios.yml` — тесты и сборка iOS · `shared-boards.yml` — валидация данных плат · `web.yml` — валидация данных, тесты Vitest, компиляция целей MindAR и деплой на GitHub Pages.

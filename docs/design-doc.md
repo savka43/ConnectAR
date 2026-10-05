@@ -135,5 +135,5 @@ dz = y + h/2 − H/2
 
 ## Открытые вопросы
 
-- Компиляция `.mind` в CI: офлайн-компилятор MindAR под Node или коммит заранее скомпилированного файла.
+- ~~Компиляция `.mind` в CI~~ — решено: `OfflineCompiler` из `mind-ar` + `canvas` под Node (`web/scripts/compile-targets.mjs`, шаг в `web.yml`), ~10 с на цель.
 - Запуск `arcoreimg` в CI вместо ручной проверки.

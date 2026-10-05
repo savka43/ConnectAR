@@ -1,9 +1,11 @@
 {
   "$schema": "../../schema/board.schema.json",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "gigabyte-b450-aorus-m",
   "name": "Gigabyte B450 AORUS M",
   "revision": "1.x",
+  "physical": { "widthMm": 244, "heightMm": 244 },
+  "target": { "image": "target.jpg" },
   "manualURL": "https://download.gigabyte.com/FileList/Manual/mb_manual_b450-aorus-m_1102_210615_e.pdf",
   "components": [
     { "id": "ram", "name": "Оперативная память DDR4", "icons": { "ios": "memorychip" } },
@@ -13,11 +15,11 @@
     { "id": "psu-cpu", "name": "Кабель CPU / EPS 8-pin", "icons": { "ios": "bolt" } }
   ],
   "connectors": [
-    { "id": "ddr4-1", "name": "DDR4_1", "componentId": "ram" },
-    { "id": "pciex16", "name": "PCIEX16", "componentId": "gpu" },
-    { "id": "sata3-0", "name": "SATA3 0", "componentId": "ssd" },
-    { "id": "atx", "name": "ATX", "componentId": "psu-atx" },
-    { "id": "cpu-power", "name": "ATX_12V", "componentId": "psu-cpu" }
+    { "id": "ddr4-1", "name": "DDR4_1", "componentId": "ram", "rectMm": { "x": 208.2, "y": 8.7, "w": 6.5, "h": 148.8 } },
+    { "id": "pciex16", "name": "PCIEX16", "componentId": "gpu", "rectMm": { "x": 39.9, "y": 158.8, "w": 90.7, "h": 6.9 } },
+    { "id": "sata3-0", "name": "SATA3 0", "componentId": "ssd", "rectMm": { "x": 229.8, "y": 195.8, "w": 14.1, "h": 16.3 } },
+    { "id": "atx", "name": "ATX", "componentId": "psu-atx", "rectMm": { "x": 231.6, "y": 62.2, "w": 9.4, "h": 51.9 } },
+    { "id": "cpu-power", "name": "ATX_12V", "componentId": "psu-cpu", "rectMm": { "x": 26.2, "y": 29.9, "w": 9.4, "h": 18.1 } }
   ],
   "steps": [
     {

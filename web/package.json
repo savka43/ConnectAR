@@ -1,0 +1,17 @@
+{
+  "name": "connectar-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "compile-targets": "node scripts/compile-targets.mjs ../shared_boards"
+  },
+  "devDependencies": {
+    "canvas": "^3.1.0",
+    "mind-ar": "1.2.5",
+    "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "canvas": "$canvas"
+  }
+}

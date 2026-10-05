@@ -3,29 +3,52 @@
   "$id": "https://connectar/shared_boards/schema/board.schema.json",
   "title": "ConnectAR board",
   "type": "object",
-  "required": ["schemaVersion", "id", "name", "manualURL", "components", "connectors", "steps"],
+  "required": ["schemaVersion", "id", "name", "physical", "manualURL", "components", "connectors", "steps"],
   "additionalProperties": false,
   "$defs": {
     "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
-    "region": {
-      "description": "Область разъёма на эталонном фото платы (targets/board.jpg), координаты нормированы 0…1 от левого верхнего угла.",
+    "rectMm": {
+      "description": "Прямоугольник разъёма в миллиметрах; начало координат — левый верхний угол платы (задняя I/O-панель слева), x/y — левый верхний угол разъёма.",
       "type": "object",
-      "required": ["x", "y", "width", "height"],
+      "required": ["x", "y", "w", "h"],
       "additionalProperties": false,
       "properties": {
-        "x": { "type": "number", "minimum": 0, "maximum": 1 },
-        "y": { "type": "number", "minimum": 0, "maximum": 1 },
-        "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
-        "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+        "x": { "type": "number", "minimum": 0 },
+        "y": { "type": "number", "minimum": 0 },
+        "w": { "type": "number", "exclusiveMinimum": 0 },
+        "h": { "type": "number", "exclusiveMinimum": 0 }
       }
     }
   },
   "properties": {
     "$schema": { "type": "string" },
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "id": { "$ref": "#/$defs/id" },
     "name": { "type": "string", "minLength": 1 },
     "revision": { "type": "string" },
+    "physical": {
+      "description": "Реальный размер платы в миллиметрах; задаёт масштаб для AR-движка.",
+      "type": "object",
+      "required": ["widthMm", "heightMm"],
+      "additionalProperties": false,
+      "properties": {
+        "widthMm": { "type": "number", "exclusiveMinimum": 0 },
+        "heightMm": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "target": {
+      "description": "Эталон для image tracking. Без него AR для платы недоступен, клиенты открывают фото-режим.",
+      "type": "object",
+      "required": ["image"],
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "description": "Фото платы строго сверху, обрезанное по краю, путь относительно папки платы.",
+          "type": "string",
+          "pattern": "^[^/]+\\.jpe?g$"
+        }
+      }
+    },
     "manualURL": { "type": "string", "format": "uri" },
     "components": {
       "type": "array",
@@ -61,7 +84,7 @@
           "id": { "$ref": "#/$defs/id" },
           "name": { "type": "string", "minLength": 1 },
           "componentId": { "$ref": "#/$defs/id" },
-          "region": { "$ref": "#/$defs/region" }
+          "rectMm": { "$ref": "#/$defs/rectMm" }
         }
       }
     },

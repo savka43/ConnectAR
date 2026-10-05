@@ -20,27 +20,39 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
       - name: Validate shared boards
         run: node shared_boards/scripts/validate.mjs
 
-      - name: Check web scripts
-        run: node --check web/app.js
+      - name: Install
+        working-directory: web
+        run: npm ci
+
+      - name: Unit tests
+        working-directory: web
+        run: npm test
 
       - name: Assemble site
         run: |
           mkdir _site
-          cp -R web/. _site/
-          rm -f _site/README.md
+          cp web/index.html web/style.css _site/
+          cp -R web/src _site/src
           cp -R shared_boards _site/shared_boards
-          rm -rf _site/shared_boards/scripts
+          rm -rf _site/shared_boards/scripts _site/shared_boards/fixtures
           touch _site/.nojekyll
+
+      # Цели MindAR компилируются из target.jpg каждой платы (без target плата работает в фото-режиме).
+      - name: Compile MindAR targets
+        working-directory: web
+        run: node scripts/compile-targets.mjs ../_site/shared_boards
 
       - uses: actions/upload-pages-artifact@v3
         with:
