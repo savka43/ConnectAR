@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://connectar/shared_boards/schema/board.schema.json",
+  "title": "ConnectAR board",
+  "type": "object",
+  "required": ["schemaVersion", "id", "name", "manualURL", "components", "connectors", "steps"],
+  "additionalProperties": false,
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "region": {
+      "description": "Область разъёма на эталонном фото платы (targets/board.jpg), координаты нормированы 0…1 от левого верхнего угла.",
+      "type": "object",
+      "required": ["x", "y", "width", "height"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 1 },
+        "y": { "type": "number", "minimum": 0, "maximum": 1 },
+        "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+      }
+    }
+  },
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "id": { "$ref": "#/$defs/id" },
+    "name": { "type": "string", "minLength": 1 },
+    "revision": { "type": "string" },
+    "manualURL": { "type": "string", "format": "uri" },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "name"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "name": { "type": "string", "minLength": 1 },
+          "icons": {
+            "description": "Платформенные имена иконок: ios — SF Symbol, android — Material Symbol, web — любой идентификатор.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "ios": { "type": "string" },
+              "android": { "type": "string" },
+              "web": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "connectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "componentId"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "name": { "type": "string", "minLength": 1 },
+          "componentId": { "$ref": "#/$defs/id" },
+          "region": { "$ref": "#/$defs/region" }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "connectorId", "instruction", "manualPage"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "title": { "type": "string", "minLength": 1 },
+          "connectorId": { "$ref": "#/$defs/id" },
+          "instruction": { "type": "string", "minLength": 1 },
+          "manualPage": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  }
+}

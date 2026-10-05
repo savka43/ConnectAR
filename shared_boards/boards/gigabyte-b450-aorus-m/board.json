@@ -1,0 +1,59 @@
+{
+  "$schema": "../../schema/board.schema.json",
+  "schemaVersion": 1,
+  "id": "gigabyte-b450-aorus-m",
+  "name": "Gigabyte B450 AORUS M",
+  "revision": "1.x",
+  "manualURL": "https://download.gigabyte.com/FileList/Manual/mb_manual_b450-aorus-m_1102_210615_e.pdf",
+  "components": [
+    { "id": "ram", "name": "Оперативная память DDR4", "icons": { "ios": "memorychip" } },
+    { "id": "gpu", "name": "Видеокарта", "icons": { "ios": "pc" } },
+    { "id": "ssd", "name": "SATA-накопитель", "icons": { "ios": "internaldrive" } },
+    { "id": "psu-atx", "name": "Кабель ATX 24-pin", "icons": { "ios": "bolt" } },
+    { "id": "psu-cpu", "name": "Кабель CPU / EPS 8-pin", "icons": { "ios": "bolt" } }
+  ],
+  "connectors": [
+    { "id": "ddr4-1", "name": "DDR4_1", "componentId": "ram" },
+    { "id": "pciex16", "name": "PCIEX16", "componentId": "gpu" },
+    { "id": "sata3-0", "name": "SATA3 0", "componentId": "ssd" },
+    { "id": "atx", "name": "ATX", "componentId": "psu-atx" },
+    { "id": "cpu-power", "name": "ATX_12V", "componentId": "psu-cpu" }
+  ],
+  "steps": [
+    {
+      "id": "ram",
+      "title": "Установить память",
+      "connectorId": "ddr4-1",
+      "instruction": "В тестовой сборке используем один модуль в DDR4_1. Для двух модулей используйте DDR4_1 и DDR4_2. Совместите вырез с ключом слота.",
+      "manualPage": 10
+    },
+    {
+      "id": "gpu",
+      "title": "Установить видеокарту",
+      "connectorId": "pciex16",
+      "instruction": "Для одной видеокарты используйте PCIEX16. Закрепите карту в корпусе; дополнительное питание проверяйте по её инструкции.",
+      "manualPage": 10
+    },
+    {
+      "id": "sata",
+      "title": "Подключить накопитель",
+      "connectorId": "sata3-0",
+      "instruction": "Соедините накопитель с SATA3 0 кабелем данных. Накопителю также требуется отдельное питание от блока питания.",
+      "manualPage": 15
+    },
+    {
+      "id": "atx",
+      "title": "Подключить питание платы",
+      "connectorId": "atx",
+      "instruction": "Подключите основной 24-контактный кабель питания к ATX, совместив ключи и защёлку.",
+      "manualPage": 13
+    },
+    {
+      "id": "cpu-power",
+      "title": "Подключить питание процессора",
+      "connectorId": "cpu-power",
+      "instruction": "Подключите кабель CPU / EPS к ATX_12V. Кабель PCIe для видеокарты сюда не подходит.",
+      "manualPage": 13
+    }
+  ]
+}

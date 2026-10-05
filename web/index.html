@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ConnectAR</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>ConnectAR</h1>
+    <select id="board" aria-label="Материнская плата"></select>
+  </header>
+
+  <main>
+    <section id="ar-panel" hidden>
+      <button id="ar-start" type="button">Открыть камеру</button>
+      <div id="ar-container"></div>
+    </section>
+
+    <section>
+      <p id="progress"></p>
+      <ol id="steps"></ol>
+      <button id="reset" type="button">Сбросить прогресс</button>
+    </section>
+
+    <p id="error" role="alert" hidden></p>
+  </main>
+
+  <template id="step-template">
+    <li>
+      <label><input type="checkbox"> <strong class="title"></strong></label>
+      <p class="connector"></p>
+      <p class="instruction"></p>
+      <a class="manual" target="_blank" rel="noopener"></a>
+    </li>
+  </template>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+name: Web (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", "shared_boards/**", ".github/workflows/web.yml"]
+  pull_request:
+    paths: ["web/**", "shared_boards/**", ".github/workflows/web.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate shared boards
+        run: node shared_boards/scripts/validate.mjs
+
+      - name: Check web scripts
+        run: node --check web/app.js
+
+      - name: Assemble site
+        run: |
+          mkdir _site
+          cp -R web/. _site/
+          rm -f _site/README.md
+          cp -R shared_boards _site/shared_boards
+          rm -rf _site/shared_boards/scripts
+          touch _site/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

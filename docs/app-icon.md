@@ -1,7 +1,7 @@
 # Иконка ConnectAR
 
 Создана встроенным image_gen; для каталога Xcode приведена к 1024×1024 PNG без прозрачности.
-Файл: `ConnectAR/Assets.xcassets/AppIcon.appiconset/AppIcon.png`.
+Файл: `ios/ConnectAR/Assets.xcassets/AppIcon.appiconset/AppIcon.png`.
 
 Промпт:
 

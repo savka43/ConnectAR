@@ -1,6 +1,7 @@
 import Foundation
 
 // Curated prototype content, not recognition output.
+// Source of truth: shared_boards/boards/gigabyte-b450-aorus-m/board.json — keep in sync.
 enum DemoAssembly {
     static let board = Motherboard(
         id: "gigabyte-b450-aorus-m",
