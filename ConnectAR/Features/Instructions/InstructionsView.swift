@@ -42,6 +42,7 @@ struct InstructionsView: View {
 struct InstructionDetailView: View {
     @EnvironmentObject private var session: AssemblySession
     let step: AssemblyStep
+    @FocusState private var editingNote: Bool
 
     var body: some View {
         List {
@@ -53,6 +54,19 @@ struct InstructionDetailView: View {
             Section {
                 Text("Подключайте компоненты только при отключённом от сети питании.")
                 Link("Руководство платы • стр. \(step.manualPage)", destination: session.board.manualURL)
+            }
+            Section {
+                TextField("Модель компонента, вопрос или напоминание", text: Binding(
+                    get: { session.notes[step.id] ?? "" },
+                    set: { session.setNote($0, for: step) }
+                ), axis: .vertical)
+                .lineLimit(3...8)
+                .focused($editingNote)
+                .accessibilityLabel("Заметка к шагу")
+            } header: {
+                Text("Моя заметка")
+            } footer: {
+                Text("Сохраняется автоматически на этом устройстве. Сброс прогресса не удаляет заметки.")
             }
             Section {
                 if !session.selectedStepIDs.contains(step.id) {
@@ -67,6 +81,13 @@ struct InstructionDetailView: View {
                         }
                     }
                 }
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Готово") { editingNote = false }
             }
         }
         .navigationTitle(step.title)

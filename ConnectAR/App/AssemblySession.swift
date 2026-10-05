@@ -5,12 +5,14 @@ final class AssemblySession: ObservableObject {
     let board: Motherboard
     @Published private(set) var completedSteps: Set<String>
     @Published private(set) var selectedStepIDs: Set<String>
+    @Published private(set) var notes: [String: String]
     private let defaults: UserDefaults
     private var storageKey: String { "assembly.v1.\(board.id)" }
 
     private struct SavedAssembly: Codable {
         var selected: Set<String>
         var completed: Set<String>
+        var notes: [String: String]?
     }
 
     var steps: [AssemblyStep] { board.steps.filter { selectedStepIDs.contains($0.id) } }
@@ -26,10 +28,19 @@ final class AssemblySession: ObservableObject {
             let selected = saved.selected.intersection(validIDs)
             selectedStepIDs = selected
             completedSteps = saved.completed.intersection(selected)
+            notes = (saved.notes ?? [:]).filter { validIDs.contains($0.key) }
         } else {
             selectedStepIDs = validIDs
             completedSteps = []
+            notes = [:]
         }
+    }
+
+    func setNote(_ text: String, for step: AssemblyStep) {
+        guard board.steps.contains(where: { $0.id == step.id }) else { return }
+        if text.isEmpty { notes.removeValue(forKey: step.id) }
+        else { notes[step.id] = text }
+        save()
     }
 
     func select(_ step: AssemblyStep, included: Bool) {
@@ -59,7 +70,7 @@ final class AssemblySession: ObservableObject {
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(SavedAssembly(selected: selectedStepIDs, completed: completedSteps)) {
+        if let data = try? JSONEncoder().encode(SavedAssembly(selected: selectedStepIDs, completed: completedSteps, notes: notes)) {
             defaults.set(data, forKey: storageKey)
         }
     }

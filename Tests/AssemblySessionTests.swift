@@ -39,6 +39,20 @@ struct AssemblySessionTests {
         defaults.set(Data(stale.utf8), forKey: "assembly.v1.\(board.id)")
         let cleaned = AssemblySession(defaults: defaults)
         precondition(cleaned.selectedStepIDs == ["ram"] && cleaned.completedSteps == ["ram"])
-        print("PASS: persistence, selection, reset, empty build, board isolation, corrupt and stale storage")
+        precondition(cleaned.notes.isEmpty, "Old saves without notes must still load")
+        let note = "Kingston DDR4\nПроверить защёлку ✅"
+        cleaned.setNote(note, for: ram)
+        let withNotes = AssemblySession(defaults: defaults)
+        precondition(withNotes.notes[ram.id] == note, "Multiline notes must survive relaunch")
+        precondition(withNotes.completedSteps == [ram.id], "Adding notes must preserve progress")
+        withNotes.resetProgress()
+        withNotes.select(ram, included: false)
+        precondition(AssemblySession(defaults: defaults).notes[ram.id] == note,
+                     "Reset and deselection must preserve user notes")
+        precondition(AssemblySession(board: otherBoard, defaults: defaults).notes.isEmpty,
+                     "Notes must be isolated by board")
+        withNotes.setNote("", for: ram)
+        precondition(AssemblySession(defaults: defaults).notes.isEmpty, "Clearing a note must persist")
+        print("PASS: notes, backward compatibility, persistence, selection, reset, empty build, board isolation, corrupt and stale storage")
     }
 }
