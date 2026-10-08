@@ -1,7 +1,9 @@
 // AR-сессия на MindAR: Tracker (якорь платы), Highlight (плоскости three.js на разъёмах),
-// Labels (HTML-кнопки в проекции центров разъёмов) и снимок кадра для заморозки.
+// Labels (HTML-кнопки в проекции центров разъёмов, раскладка без наложений), снимок кадра и фонарик.
+import { boardCorners, homographyFromPoints } from "./homography.js";
 import { webAnchorPosition, webCorners, webSize } from "./layout.js";
-import { clampLabel, labelText } from "./markers.js";
+import { createLeadersLayer, renderLeaders } from "./leaders.js";
+import { layoutLabels } from "./markers.js";
 
 const MINDAR_SRC = "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js";
 
@@ -42,13 +44,35 @@ export function isInAppBrowser(ua = navigator.userAgent) {
   return /Telegram|FBAN|FBAV|Instagram|Line\/|VKClient|; wv\)|MicroMessenger/i.test(ua);
 }
 
-/** Скачивает .mind с прогрессом; возвращает blob-URL для MindAR. */
-export async function fetchTarget(url, onProgress) {
+const targets = new Map(); // url → { promise, listeners }
+
+/**
+ * Содержимое .mind; файл скачивается один раз на страницу — его берут и AR, и распознавание фото.
+ * onProgress — доля 0…1, пока идёт загрузка. Неудачная загрузка не кэшируется.
+ * @returns {Promise<ArrayBuffer>}
+ */
+export function loadTarget(url, onProgress) {
+  let entry = targets.get(url);
+  if (!entry) {
+    const listeners = new Set();
+    const promise = downloadTarget(url, (p) => listeners.forEach((f) => f(p)));
+    entry = { listeners, promise };
+    targets.set(url, entry);
+    promise.then(() => listeners.clear(), () => {
+      listeners.clear();
+      if (targets.get(url) === entry) targets.delete(url);
+    });
+  }
+  if (onProgress) entry.listeners.add(onProgress);
+  return entry.promise;
+}
+
+async function downloadTarget(url, onProgress) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
   const total = Number(res.headers.get("content-length")) || 0;
   const reader = res.body?.getReader();
-  if (!reader) return URL.createObjectURL(await res.blob());
+  if (!reader) return res.arrayBuffer();
   const chunks = [];
   let loaded = 0;
   for (;;) {
@@ -58,7 +82,7 @@ export async function fetchTarget(url, onProgress) {
     loaded += value.length;
     if (total) onProgress(loaded / total);
   }
-  return URL.createObjectURL(new Blob(chunks));
+  return new Blob(chunks).arrayBuffer();
 }
 
 /** Отдельный запрос камеры, чтобы отличить отказ в доступе от остальных ошибок (MindAR их не различает). */
@@ -80,11 +104,16 @@ export class ARSession {
    * @param {{widthMm:number,heightMm:number}} o.physical
    * @param {(state: "searching"|"tracking"|"limited") => void} o.onState
    * @param {(entry: object) => void} o.onSelect — тап по метке
+   * @param {() => void} [o.onTorchChange] — обновить кнопку после переключения или восстановления фонарика
    */
-  constructor({ container, labelsLayer, targetSrc, physical, onState, onSelect }) {
-    Object.assign(this, { container, labelsLayer, targetSrc, physical, onState, onSelect });
+  constructor({ container, labelsLayer, targetSrc, physical, onState, onSelect, onTorchChange }) {
+    Object.assign(this, { container, labelsLayer, targetSrc, physical, onState, onSelect, onTorchChange });
     this.entries = [];
     this.items = [];
+    this.labelState = null; // история раскладки подписей для гистерезиса; null — ставить сразу
+    this.torchWanted = false; // выбор пользователя; переживает паузу
+    this.torchOn = false; // что последним удалось применить к камере
+    this.torchQueue = Promise.resolve();
   }
 
   async start() {
@@ -101,6 +130,7 @@ export class ARSession {
     this.anchor = this.mindar.addAnchor(0);
     // После stopProcessVideo MindAR дорабатывает текущий кадр — его события на паузе игнорируем.
     this.anchor.onTargetFound = () => {
+      this.labelState = null; // только что найденная плата: подписи ставятся сразу
       if (!this.paused) this.onState("tracking");
     };
     this.anchor.onTargetLost = () => {
@@ -131,7 +161,7 @@ export class ARSession {
     });
   }
 
-  /** entries — результат connectorStates(); пересоздаёт подсветки и метки, трекинг не трогает. */
+  /** entries — результат boardMarkers(); пересоздаёт подсветки и метки, трекинг не трогает. */
   setEntries(entries) {
     this.entries = entries;
     if (this.anchor) this.buildItems();
@@ -144,10 +174,11 @@ export class ARSession {
       item.mesh.geometry.dispose();
       item.mesh.material.dispose();
     }
-    this.labelsLayer.replaceChildren();
+    this.leaders = createLeadersLayer();
+    this.labelsLayer.replaceChildren(this.leaders);
 
     this.items = this.entries.map((entry) => {
-      const rect = entry.connector.rectMm;
+      const rect = entry.rectMm;
       const { width, height } = webSize(this.physical, rect);
       const [x, y] = webAnchorPosition(this.physical, rect);
       const style = HIGHLIGHT[entry.state];
@@ -158,14 +189,17 @@ export class ARSession {
       mesh.position.set(x, y, 0.001);
       this.anchor.group.add(mesh);
 
-      const label = document.createElement("button");
-      label.type = "button";
-      label.className = `marker-label ${entry.state}`;
-      label.textContent = labelText(entry.connector, entry.state);
-      label.hidden = true;
-      label.addEventListener("click", () => this.onSelect(entry));
-      this.labelsLayer.append(label);
-      return { entry, mesh, label, center: new THREE.Vector3(x, y, 0) };
+      let label = null;
+      if (entry.showLabel) {
+        label = document.createElement("button");
+        label.type = "button";
+        label.className = `marker-label ${entry.state}`;
+        label.textContent = entry.label;
+        label.style.visibility = "hidden"; // не hidden: размер нужен для раскладки
+        label.addEventListener("click", () => this.onSelect(entry));
+        this.labelsLayer.append(label);
+      }
+      return { entry, mesh, label, center: new THREE.Vector3(x, y, 0), size: null, anchor: null };
     });
   }
 
@@ -181,14 +215,29 @@ export class ARSession {
     const tracking = this.anchor.visible && !this.paused;
     const w = this.container.clientWidth;
     const h = this.container.clientHeight;
-    for (const { label, center } of this.items) {
-      const p = tracking ? this.project(center) : null;
-      const onScreen = p && p[0] >= 0 && p[0] <= w && p[1] >= 0 && p[1] <= h;
-      label.hidden = !onScreen;
-      if (!onScreen) continue;
-      const [x, y] = clampLabel(p, [label.offsetWidth, label.offsetHeight], [w, h]);
-      label.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+    const layoutItems = [];
+    for (const item of this.items) {
+      if (!item.label) continue;
+      const p = tracking ? this.project(item.center) : null;
+      item.anchor = p && p[0] >= 0 && p[0] <= w && p[1] >= 0 && p[1] <= h ? p : null;
+      if (!item.anchor) continue;
+      if (!item.size?.[0]) item.size = [item.label.offsetWidth, item.label.offsetHeight];
+      const { id, state, order } = item.entry;
+      layoutItems.push({ id, anchor: item.anchor, size: item.size, state, order });
     }
+    const { labels, state } = layoutLabels(layoutItems, [w, h], this.labelState);
+    this.labelState = tracking ? state : null;
+
+    const lines = [];
+    for (const item of this.items) {
+      if (!item.label) continue;
+      const place = item.anchor && labels.get(item.entry.id);
+      item.label.style.visibility = place?.visible ? "visible" : "hidden";
+      if (!place?.visible) continue;
+      item.label.style.transform = `translate(${place.x}px, ${place.y}px) translate(-50%, -50%)`;
+      if (place.leader) lines.push({ from: item.anchor, to: [place.x, place.y], size: item.size, state: item.entry.state });
+    }
+    renderLeaders(this.leaders, lines);
   }
 
   get isTracking() {
@@ -204,6 +253,10 @@ export class ARSession {
     this.mindar.renderer.setAnimationLoop(null);
     this.hideAnchor();
     this.updateLabels();
+    // Проверяем после предыдущей операции: включение могло ещё ждать applyConstraints.
+    this.queueTorch(async () => {
+      if (this.paused && this.torchOn) await this.applyTorch(false);
+    }); // torchWanted остаётся: resume() включит снова
   }
 
   // Якорь ищется заново: MindAR вызовет onTargetFound, когда снова увидит плату.
@@ -223,6 +276,57 @@ export class ARSession {
     this.onState("searching");
     this.mindar.controller.processVideo(this.mindar.video);
     this.loop();
+    await this.queueTorch(async () => {
+      if (this.paused || !this.mindar || !this.torchWanted) return;
+      if (!(await this.applyTorch(true))) this.torchWanted = this.torchOn;
+      this.onTorchChange?.();
+    });
+  }
+
+  // ——— Фонарик ———
+
+  get videoTrack() {
+    return this.mindar?.video?.srcObject?.getVideoTracks?.()[0] ?? null;
+  }
+
+  /** Фонарик есть, только если камера сообщает torch в getCapabilities (Chrome на Android; не iOS Safari). */
+  get torchSupported() {
+    try {
+      return Boolean(this.videoTrack?.getCapabilities?.().torch);
+    } catch {
+      return false;
+    }
+  }
+
+  // Кнопка показывает torchWanted: если переключить не удалось, состояние не меняется.
+  toggleTorch() {
+    return this.queueTorch(async () => {
+      if (!this.paused && this.mindar) {
+        const want = !this.torchWanted;
+        if (await this.applyTorch(want)) this.torchWanted = want;
+        this.onTorchChange?.();
+      }
+      return this.torchWanted;
+    });
+  }
+
+  queueTorch(operation) {
+    const run = this.torchQueue.then(operation);
+    this.torchQueue = run.catch(() => {});
+    return run;
+  }
+
+  async applyTorch(on) {
+    if (!this.torchSupported) return false;
+    const track = this.videoTrack;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: on }] });
+      if (track !== this.videoTrack) return false;
+      this.torchOn = on;
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   stop() {
@@ -238,11 +342,12 @@ export class ARSession {
     this.container.replaceChildren();
     this.labelsLayer.replaceChildren();
     this.mindar = null;
+    this.torchOn = this.torchWanted = false;
   }
 
   /**
-   * Снимок кадра с той же обрезкой, что на экране, без 3D-подсветки,
-   * и метки в нормированных координатах снимка (центр + четырёхугольник в перспективе).
+   * Снимок кадра с той же обрезкой, что на экране, без 3D-подсветки, и гомография «мм платы → нормированные
+   * координаты снимка». Углы платы проецируются в px контейнера — это ровно та область, что рисуется на canvas.
    */
   async freeze() {
     const { video } = this.mindar;
@@ -258,20 +363,15 @@ export class ARSession {
     const sy = (video.videoHeight - ch / scale) / 2;
     canvas.getContext("2d").drawImage(video, sx, sy, cw / scale, ch / scale, 0, 0, canvas.width, canvas.height);
 
-    const markers = [];
-    for (const { entry, center } of this.items) {
-      const c = this.project(center);
-      const corners = webCorners(this.physical, entry.connector.rectMm)
-        .map(([x, y, z]) => this.project(new this.THREE.Vector3(x, y, z)));
-      if (!c || corners.includes(null)) continue;
-      const norm = ([x, y]) => [x / cw, y / ch];
-      const polygon = corners.map(norm);
-      const visible = polygon.some(([u, v]) => u >= 0 && u <= 1 && v >= 0 && v <= 1);
-      if (visible) markers.push({ id: entry.connector.id, center: norm(c), polygon });
-    }
+    const corners = webCorners(this.physical, { x: 0, y: 0, w: this.physical.widthMm, h: this.physical.heightMm })
+      .map(([x, y, z]) => this.project(new this.THREE.Vector3(x, y, z)));
+    const homography = corners.includes(null)
+      ? null
+      : homographyFromPoints(boardCorners(this.physical), corners.map(([x, y]) => [x / cw, y / ch]));
+    if (!homography) throw new Error("Плата не попала в кадр");
 
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
     if (!blob) throw new Error("canvas.toBlob вернул пустой результат");
-    return { url: URL.createObjectURL(blob), markers };
+    return { url: URL.createObjectURL(blob), homography };
   }
 }
