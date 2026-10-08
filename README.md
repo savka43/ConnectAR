@@ -23,7 +23,7 @@ AR-помощник для сборки компьютера. Наведите �
 | [`android/`](android) | Android-приложение (ARCore) |
 | [`web/`](web) | Веб-версия на MindAR, GitHub Pages |
 | [`shared_boards/`](shared_boards) | Общие данные плат для всех клиентов |
-| [`docs/`](docs) | Документация и [дизайн](docs/plans/2026-10-05-ar-board-recognition-design.md) |
+| [`docs/`](docs) | Документация и [дизайн](docs/design-doc.md) |
 
 Данные плат редактируются только в `shared_boards/`. Проверка: `node shared_boards/scripts/validate.mjs`.
 
