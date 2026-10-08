@@ -1,11 +1,16 @@
-// Вкладка «Камера»: AR по умолчанию, заморозка кадра и ручной фото-режим как запасной путь.
-// Любая ошибка ведёт в фото-режим, тупиков нет (docs/design-doc.md, раздел 4).
-import { ARSession, CameraAccessError, fetchTarget, isARSupported, isInAppBrowser, loadEngine } from "./ar.js";
-import { connectorStates, currentStep, labelText } from "./markers.js";
+// Вкладка «Камера»: AR по умолчанию, заморозка кадра и фото как запасной путь. Любой снимок хранит
+// гомографию «мм платы → снимок», поэтому метки на нём всегда считаются из текущего плана.
+// Любая ошибка ведёт в фото-режим, тупиков нет (docs/design-doc.md, раздел 5).
+import { ARSession, CameraAccessError, isARSupported, isInAppBrowser, loadEngine, loadTarget } from "./ar.js";
+import { applyHomography, boardCorners, checkQuad, homographyFromPoints } from "./homography.js";
+import { rectCorners } from "./layout.js";
+import { boardMarkers, currentStep } from "./markers.js";
+import { downscale, loadOrientedImage, recognizeBoard } from "./photo-recognition.js";
 import { BoardPhotoView } from "./photo-view.js";
 
 const TIPS_AFTER_MS = 10_000;
 const PHOTO_OFFER_AFTER_MS = 25_000;
+const DISPLAY_MAX_SIDE = 2048;
 
 const HINTS = {
   searching: "Наведите камеру так, чтобы плата целиком попала в кадр",
@@ -13,7 +18,58 @@ const HINTS = {
 };
 
 const CAMERA_DENIED = "Нет доступа к камере. Разрешите его в настройках сайта: значок слева от адреса → «Камера» → «Разрешить» "
-  + "(iPhone: «Настройки» → Safari → «Камера»), затем нажмите «Повторить». Или отметьте разъёмы на фото.";
+  + "(iPhone: «Настройки» → Safari → «Камера»), затем нажмите «Повторить». Или отметьте плату на фото.";
+
+// Углы платы по часовой стрелке от верхнего левого (у задней панели I/O, со стороны процессора).
+const CORNER_HINTS = [
+  "у задней панели, со стороны процессора",
+  "напротив задней панели, со стороны процессора",
+  "напротив задней панели, со стороны слотов PCIe",
+  "у задней панели, со стороны слотов PCIe",
+];
+
+const CORNER_PROBLEMS = {
+  crossed: "Похоже, углы перепутаны — проверьте порядок",
+  mirrored: "Похоже, углы перепутаны — проверьте порядок",
+  concave: "Углы стоят неровно — перетащите их на края платы",
+};
+
+/** Мини-схема платы для подсказки «какой угол ставить»: задняя панель слева, процессор сверху. */
+function cornerSchema(active) {
+  const corners = [[8, 8], [92, 8], [92, 92], [8, 92]];
+  return '<rect class="board" x="8" y="8" width="84" height="84" rx="3"/>'
+    + '<rect class="part" x="12" y="14" width="10" height="34"/>'
+    + '<rect class="part" x="42" y="18" width="22" height="22"/>'
+    + '<rect class="part" x="16" y="62" width="62" height="5"/><rect class="part" x="16" y="76" width="62" height="5"/>'
+    + corners.map(([x, y], i) => {
+      const cls = i < active ? " done" : i === active ? " active" : "";
+      return `<circle class="corner${cls}" cx="${x}" cy="${y}" r="7"/>`;
+    }).join("");
+}
+
+/**
+ * Снимок по EXIF, уменьшенный до DISPLAY_MAX_SIDE. Полноразмерный bitmap (48 Мп ≈ 190 МБ) освобождается сразу:
+ * и показ, и распознавание идут по этой копии.
+ */
+async function decodePhoto(file) {
+  const image = await loadOrientedImage(file);
+  try {
+    return downscale(image, DISPLAY_MAX_SIDE);
+  } finally {
+    image.close?.();
+  }
+}
+
+async function canvasUrl(canvas) {
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  if (!blob) throw new Error("canvas.toBlob вернул пустой результат");
+  return URL.createObjectURL(blob);
+}
+
+// Safari ограничивает суммарную память холстов и держит её до сборки мусора; нулевой размер отдаёт её сразу.
+function releaseCanvas(canvas) {
+  if (canvas) canvas.width = canvas.height = 0;
+}
 
 export class CameraTab {
   /**
@@ -28,10 +84,12 @@ export class CameraTab {
     this.mode = "idle"; // idle | loading | ar | frozen | photo
     this.active = false;
     this.token = 0;
+    this.photoToken = 0;
 
     this.photoView = new BoardPhotoView(this.$("photo-view"), {
-      onSelect: (marker) => this.select(marker.id),
-      onPlace: (point) => this.place(point),
+      onSelect: (marker) => this.openStep(marker.step),
+      onPlace: (point) => this.placeCorner(point),
+      onCornerMove: (index, point) => this.moveCorner(index, point),
     });
 
     this.$("freeze").addEventListener("click", () => this.freeze());
@@ -39,11 +97,28 @@ export class CameraTab {
     this.$("back-to-ar").addEventListener("click", () => this.backToAR());
     this.$("take-photo").addEventListener("click", () => this.$("file-capture").click());
     this.$("pick-photo").addEventListener("click", () => this.$("file-gallery").click());
+    this.$("torch").addEventListener("click", async () => {
+      await this.ar?.toggleTorch();
+      this.render();
+    });
+    this.$("fix-corners").addEventListener("click", () => {
+      if (this.photo) this.photo.editing = true;
+      this.render();
+    });
+    this.$("corners-done").addEventListener("click", () => {
+      if (this.photo?.homography) this.photo.editing = false;
+      this.render();
+    });
+    this.$("corners-restart").addEventListener("click", () => {
+      if (!this.photo) return;
+      this.photo.corners = [];
+      this.updateCorners();
+    });
     for (const id of ["file-capture", "file-gallery"]) {
       this.$(id).addEventListener("change", (e) => {
         const file = e.target.files?.[0];
         e.target.value = "";
-        if (file) this.loadManualPhoto(file);
+        if (file) this.loadPhoto(file);
       });
     }
     document.addEventListener("visibilitychange", () => {
@@ -77,31 +152,29 @@ export class CameraTab {
 
   reset() {
     this.token++;
+    this.photoToken++;
     this.ar?.stop();
     this.ar = null;
     this.clearSearchTimers();
-    if (this.frozen) URL.revokeObjectURL(this.frozen.url);
-    if (this.manual) URL.revokeObjectURL(this.manual.url);
-    this.frozen = null;
-    this.manual = null;
-    this.placingId = null;
+    this.dropFrozen();
+    this.dropPhoto();
     this.notice = null;
     this.mode = "idle";
   }
 
-  /** Разъёмы из шагов плана с состоянием и шагом. */
-  allEntries() {
-    return connectorStates(this.board, this.session.plan, this.session.done);
+  dropFrozen() {
+    if (this.frozen) URL.revokeObjectURL(this.frozen.url);
+    this.frozen = null;
   }
 
-  /** То же для AR: без rectMm разъём на плате не показать. */
+  dropPhoto() {
+    if (this.photo) URL.revokeObjectURL(this.photo.url);
+    this.photo = null;
+  }
+
+  /** Метки на плате для текущего плана (locked отброшены, одинаковые прямоугольники склеены). */
   entries() {
-    return this.allEntries().filter((e) => e.connector.rectMm);
-  }
-
-  select(connectorId) {
-    const entry = this.allEntries().find((e) => e.connector.id === connectorId);
-    if (entry) this.openStep(entry.step);
+    return boardMarkers(this.board, this.session.plan, this.session.done);
   }
 
   // ——— AR ———
@@ -110,13 +183,13 @@ export class CameraTab {
     const token = ++this.token;
     this.notice = null;
     if (!this.board.target || !this.targetUrl) {
-      return this.enterPhoto({ text: "AR для этой платы пока недоступен: нет эталонного фото. Сделайте снимок и отметьте разъёмы вручную." });
+      return this.enterPhoto({ text: "AR для этой платы пока недоступен: нет эталонного фото. Сделайте снимок и отметьте 4 угла платы." });
     }
     if (isInAppBrowser()) {
       return this.enterPhoto({ text: "Встроенный браузер приложения может не поддерживать камеру и AR. Откройте страницу в Safari или Chrome.", retry: "Всё равно попробовать AR" });
     }
     if (!isARSupported()) {
-      return this.enterPhoto({ text: "Этот браузер не поддерживает AR: нужны доступ к камере (HTTPS) и WebGL. Можно отметить разъёмы на фото." });
+      return this.enterPhoto({ text: "Этот браузер не поддерживает AR: нужны доступ к камере (HTTPS) и WebGL. Можно найти плату на фото." });
     }
 
     this.mode = "loading";
@@ -125,13 +198,16 @@ export class CameraTab {
 
     let targetSrc;
     try {
-      [, targetSrc] = await Promise.all([
+      const [, target] = await Promise.all([
         loadEngine(),
-        fetchTarget(this.targetUrl, (p) => this.setLoading("Загрузка эталона платы…", p)),
+        loadTarget(this.targetUrl, (p) => this.setLoading("Загрузка эталона платы…", p)),
       ]);
+      targetSrc = URL.createObjectURL(new Blob([target]));
     } catch (e) {
       console.error(e);
-      if (token === this.token) this.enterPhoto({ text: "Не удалось загрузить данные распознавания платы.", retry: "Повторить" });
+      if (token === this.token && this.mode === "loading") {
+        this.enterPhoto({ text: "Не удалось загрузить данные распознавания платы.", retry: "Повторить" });
+      }
       return;
     }
     if (token !== this.token) return URL.revokeObjectURL(targetSrc);
@@ -144,6 +220,7 @@ export class CameraTab {
       physical: this.board.physical,
       onState: (state) => this.onTrackingState(state),
       onSelect: (entry) => this.openStep(entry.step),
+      onTorchChange: () => this.render(),
     });
     ar.setEntries(this.entries());
     try {
@@ -152,17 +229,18 @@ export class CameraTab {
       console.error(e);
       ar.stop();
       URL.revokeObjectURL(targetSrc);
-      if (token !== this.token) return;
+      if (token !== this.token || this.mode !== "loading") return;
       const text = e instanceof CameraAccessError
-        ? (e.message === "Нет доступа к камере" ? CAMERA_DENIED : `${e.message}. Можно отметить разъёмы на фото.`)
+        ? (e.message === "Нет доступа к камере" ? CAMERA_DENIED : `${e.message}. Можно найти плату на фото.`)
         : "Не удалось запустить распознавание.";
       return this.enterPhoto({ text, retry: "Повторить" });
     }
     if (token !== this.token) return ar.stop();
 
     this.ar = ar;
-    this.mode = "ar";
-    if (!this.active) ar.pause();
+    // Пока AR запускался, пользователь мог уйти в фото — тогда AR ждёт на паузе до «Вернуться в AR».
+    if (this.mode === "loading") this.mode = "ar";
+    if (!this.active || this.mode !== "ar") ar.pause();
     this.render();
   }
 
@@ -189,26 +267,34 @@ export class CameraTab {
   }
 
   async freeze() {
-    if (!this.ar?.isTracking) return;
+    const { ar } = this;
+    if (!ar?.isTracking) return;
+    const token = this.photoToken;
+    // Пока кадр сохраняется, могли уйти в фото или сменить плату — тогда кадр не нужен.
+    const current = () => this.ar === ar && this.mode === "ar" && token === this.photoToken;
+    let frozen;
+    let shown = false;
     try {
-      this.frozen = await this.ar.freeze();
-      await this.photoView.setImage(this.frozen.url);
+      frozen = await ar.freeze();
+      shown = current() && await this.photoView.setImage(frozen.url, current);
     } catch (e) {
       console.error(e);
-      this.frozen = null;
-      this.toast("Не удалось сохранить кадр");
+      if (frozen) URL.revokeObjectURL(frozen.url);
+      if (current()) this.toast("Не удалось сохранить кадр");
       return;
     }
-    this.ar.pause();
+    if (!shown || !current()) return URL.revokeObjectURL(frozen.url);
+    this.dropFrozen();
+    this.frozen = frozen;
+    ar.pause();
     this.clearSearchTimers();
     this.mode = "frozen";
     this.render();
   }
 
   backToAR() {
-    if (this.frozen) URL.revokeObjectURL(this.frozen.url);
-    this.frozen = null;
-    this.placingId = null;
+    this.photoToken++;
+    this.dropFrozen();
     if (this.ar) {
       this.mode = "ar";
       this.ar.resume();
@@ -218,79 +304,137 @@ export class CameraTab {
     }
   }
 
-  // ——— Фото-режим ———
+  // ——— Фото ———
 
   /** notice — причина, по которой AR недоступен; retry — подпись кнопки повторного запуска AR. */
   enterPhoto(notice = null) {
+    const token = ++this.photoToken;
     this.ar?.pause();
     this.clearSearchTimers();
     this.notice = notice;
     this.mode = "photo";
-    if (this.frozen) URL.revokeObjectURL(this.frozen.url);
-    this.frozen = null;
-    if (this.manual) this.photoView.setImage(this.manual.url).then(() => this.render());
-    this.render();
-  }
-
-  async loadManualPhoto(file) {
-    const url = URL.createObjectURL(file);
-    try {
-      await this.photoView.setImage(url);
-    } catch {
-      URL.revokeObjectURL(url);
-      this.toast("Не удалось открыть фото");
-      return;
-    }
-    if (this.manual) URL.revokeObjectURL(this.manual.url);
-    this.manual = { url, positions: new Map() };
-    const entries = this.allEntries();
-    this.placingId = (entries.find((e) => e.state === "current") ?? entries[0])?.connector.id ?? null;
-    this.mode = "photo";
-    this.render();
-  }
-
-  place(point) {
-    if (!this.placingId || !this.manual) return;
-    this.manual.positions.set(this.placingId, point);
-    this.placingId = this.allEntries().find((e) => !this.manual.positions.has(e.connector.id))?.connector.id ?? null;
-    this.render();
-  }
-
-  photoMarkers() {
-    const byId = new Map(this.allEntries().map((e) => [e.connector.id, e]));
-    const toMarker = (id, geometry) => {
-      const entry = byId.get(id);
-      return entry && { id, label: labelText(entry.connector, entry.state), state: entry.state, ...geometry };
-    };
-    if (this.mode === "frozen") return this.frozen.markers.map((m) => toMarker(m.id, m)).filter(Boolean);
-    if (this.manual) return [...this.manual.positions].map(([id, center]) => toMarker(id, { center })).filter(Boolean);
-    return [];
-  }
-
-  renderPlaceBar() {
-    const bar = this.$("place-bar");
-    const show = this.mode === "photo" && this.manual;
-    bar.hidden = !show;
-    if (!show) return;
-    const entries = this.allEntries();
-    const chips = entries.map(({ connector, state }) => {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = `chip ${state}`;
-      chip.classList.toggle("placed", this.manual.positions.has(connector.id));
-      chip.setAttribute("aria-pressed", String(this.placingId === connector.id));
-      chip.textContent = connector.name;
-      chip.addEventListener("click", () => {
-        this.placingId = this.placingId === connector.id ? null : connector.id;
-        this.render();
-      });
-      return chip;
+    this.dropFrozen();
+    const photo = this.photo;
+    const current = () => token === this.photoToken && this.mode === "photo" && this.photo === photo;
+    if (photo) this.photoView.setImage(photo.url, current).then((shown) => {
+      if (shown && current()) this.render();
+    }).catch((e) => {
+      console.error(e);
+      if (current()) this.toast("Не удалось открыть фото");
     });
-    this.$("place-chips").replaceChildren(...chips);
-    const placing = entries.find((e) => e.connector.id === this.placingId);
-    this.$("place-hint").textContent = placing
-      ? `Коснитесь фото там, где находится ${placing.connector.name}`
-      : "Выберите разъём, чтобы поставить или переставить метку";
+    this.render();
+  }
+
+  /** Фото → поворот по EXIF → показ → распознавание; не нашли — ручная разметка по 4 углам. */
+  async loadPhoto(file) {
+    if (this.mode !== "photo") this.enterPhoto();
+    else this.photoToken++;
+    const token = this.photoToken;
+    // Пока снимок готовится, могли выбрать другой, вернуться в AR или сменить плату — тогда он не нужен.
+    const current = () => token === this.photoToken && this.mode === "photo";
+    let display;
+    try {
+      let url;
+      try {
+        display = await decodePhoto(file);
+        url = await canvasUrl(display);
+        if (!current() || !(await this.photoView.setImage(url, current)) || !current()) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+      } catch (e) {
+        console.error(e);
+        if (url) URL.revokeObjectURL(url);
+        if (current()) this.toast("Не удалось открыть фото");
+        return;
+      }
+      this.dropPhoto();
+      const photo = { url, size: [display.width, display.height], status: "recognizing", corners: [], editing: false, homography: null, problem: null, missed: false };
+      this.photo = photo;
+      this.render();
+
+      const result = await this.recognize(display);
+      // Результат принадлежит снимку: если из фото-режима ушли, он дождётся возвращения, но без тоста.
+      if (this.photo !== photo) return;
+      if (result) {
+        const corners = boardCorners(this.board.physical).map((p) => applyHomography(result.homography, p));
+        Object.assign(photo, { status: "found", homography: result.homography, corners });
+      } else {
+        Object.assign(photo, { status: "manual", editing: true, missed: Boolean(this.board.target) });
+        if (this.board.target && this.active && this.mode === "photo") this.toast("Плату на фото не нашли — отметьте 4 угла");
+      }
+      this.render();
+    } finally {
+      releaseCanvas(display);
+    }
+  }
+
+  async recognize(image) {
+    const { board, targetUrl } = this;
+    if (!board.target || !targetUrl) return null;
+    try {
+      return await recognizeBoard(image, await loadTarget(targetUrl), board.physical);
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
+  }
+
+  placeCorner(point) {
+    const { photo } = this;
+    if (this.mode !== "photo" || !photo?.editing || photo.corners.length >= 4) return;
+    photo.corners.push(point);
+    this.updateCorners();
+  }
+
+  moveCorner(index, point) {
+    if (!this.photo?.editing) return;
+    this.photo.corners[index] = point;
+    // pointermove приходит чаще кадров, а при перетаскивании меняются только углы, метки и подсказка:
+    // пересчёт раз в кадр и без полного render().
+    this.cornerFrame ??= requestAnimationFrame(() => {
+      this.cornerFrame = null;
+      if (this.mode !== "photo" || !this.photo?.editing) return;
+      this.fitCorners();
+      this.renderPhotoLayers();
+      this.renderPlaceBar();
+    });
+  }
+
+  updateCorners() {
+    this.fitCorners();
+    this.render();
+  }
+
+  // Четыре угла → гомография. Ручные углы проверяются только на порядок и форму: мелкая или вытянутая
+  // плата на фото допустима, а «бантик» почти всегда значит, что перепутаны соседние углы.
+  fitCorners() {
+    const { photo } = this;
+    photo.homography = null;
+    photo.problem = null;
+    if (photo.corners.length === 4) {
+      const [w, h] = photo.size;
+      const px = photo.corners.map(([u, v]) => [u * w, v * h]);
+      const check = checkQuad(px, [w, h], this.board.physical, { minArea: 0, maxAspectError: Infinity });
+      if (check.ok) photo.homography = homographyFromPoints(boardCorners(this.board.physical), photo.corners);
+      else photo.problem = CORNER_PROBLEMS[check.reason];
+    }
+  }
+
+  /**
+   * Метки текущего плана на снимке: прямоугольники разъёмов через гомографию снимка. Разъёма с центром
+   * за краем снимка на фото нет — его метка не показывается.
+   */
+  photoMarkers() {
+    const snapshot = this.mode === "frozen" ? this.frozen : this.photo;
+    const H = snapshot?.homography;
+    if (!H) return [];
+    const inside = ([u, v]) => u >= 0 && u <= 1 && v >= 0 && v <= 1;
+    return this.entries().flatMap((m) => {
+      const r = m.rectMm;
+      const center = applyHomography(H, [r.x + r.w / 2, r.y + r.h / 2]);
+      return inside(center) ? [{ ...m, polygon: rectCorners(r).map((p) => applyHomography(H, p)), center }] : [];
+    });
   }
 
   // ——— Отрисовка ———
@@ -310,14 +454,18 @@ export class CameraTab {
 
   render() {
     if (!this.board) return;
-    const { mode } = this;
-    const showPhoto = mode === "frozen" || (mode === "photo" && this.manual);
+    const { mode, photo } = this;
+    const inPhoto = mode === "photo" && Boolean(photo);
+    const recognizing = inPhoto && photo.status === "recognizing";
+    const editing = inPhoto && photo.editing;
+    const showPhoto = mode === "frozen" || inPhoto;
     this.$("ar-view").hidden = mode !== "ar" && mode !== "loading";
     this.$("ar-labels").hidden = mode !== "ar" || this.trackingState !== "tracking";
-    this.$("camera-loading").hidden = mode !== "loading";
+    if (recognizing) this.setLoading("Ищем плату на фото…", null);
+    this.$("camera-loading").hidden = !(mode === "loading" || recognizing);
     this.$("photo-view").hidden = !showPhoto;
-    this.photoView.setPlacing(mode === "photo" && Boolean(this.placingId));
-    if (showPhoto) this.photoView.setMarkers(this.photoMarkers());
+    this.photoView.setPlacing(editing && photo.corners.length < 4);
+    if (showPhoto) this.renderPhotoLayers();
 
     const hint = this.$("camera-hint");
     const searching = mode === "ar" && this.trackingState !== "tracking";
@@ -330,22 +478,57 @@ export class CameraTab {
     this.$("to-photo").classList.toggle("prominent", searching && this.searchLevel >= 2);
 
     const notice = this.$("camera-notice");
-    notice.hidden = !(mode === "photo" && !this.manual);
-    this.$("camera-notice-text").textContent = this.notice?.text ?? "Сделайте фото платы сверху или выберите его из галереи, затем отметьте разъёмы.";
+    notice.hidden = !(mode === "photo" && !photo);
+    this.$("camera-notice-text").textContent = this.notice?.text
+      ?? "Сделайте фото платы сверху или выберите его из галереи — плату на снимке найдём сами.";
     const retry = this.$("camera-retry");
     retry.hidden = !this.notice?.retry;
     retry.textContent = this.notice?.retry ?? "";
     retry.onclick = () => this.startAR();
 
+    const torch = this.$("torch");
+    torch.hidden = !(mode === "ar" && this.ar?.torchSupported);
+    torch.setAttribute("aria-pressed", String(Boolean(this.ar?.torchWanted)));
     this.$("freeze").hidden = mode !== "ar";
     this.$("freeze").disabled = !this.ar?.isTracking;
     this.$("to-photo").hidden = mode !== "ar";
     this.$("back-to-ar").hidden = !(mode === "frozen" || (mode === "photo" && this.ar));
     this.$("take-photo").hidden = mode !== "photo";
     this.$("pick-photo").hidden = mode !== "photo";
-    this.$("frozen-note").hidden = mode !== "frozen";
+    this.$("fix-corners").hidden = !(inPhoto && !editing && !recognizing);
+
+    const note = this.$("frozen-note");
+    note.textContent = mode === "frozen"
+      ? "Кадр заморожен — приближайте и нажимайте на метки"
+      : "Нажимайте на метки. Если они не на месте — «Поправить углы»";
+    note.hidden = !(mode === "frozen" || (inPhoto && !editing && photo.homography));
     this.renderPlaceBar();
     this.renderCurrentStep();
+  }
+
+  /** Подсветка разъёмов, подписи и ручки углов на снимке. */
+  renderPhotoLayers() {
+    const editing = this.mode === "photo" && Boolean(this.photo?.editing);
+    const markers = this.photoMarkers();
+    // Пока правятся углы, подписи закрывали бы ручки — видна только подсветка разъёмов.
+    this.photoView.setMarkers(editing ? markers.map((m) => ({ ...m, showLabel: false })) : markers);
+    this.photoView.setCorners(editing ? this.photo.corners : [], editing);
+  }
+
+  renderPlaceBar() {
+    const { photo } = this;
+    const show = this.mode === "photo" && Boolean(photo?.editing);
+    this.$("place-bar").hidden = !show;
+    if (!show) return;
+    const n = photo.corners.length;
+    const hint = this.$("place-hint");
+    hint.classList.toggle("problem", Boolean(photo.problem));
+    hint.textContent = n < 4
+      ? `${photo.missed && n === 0 ? "Плату на фото не нашли. " : ""}Коснитесь угла платы ${n + 1} из 4: ${CORNER_HINTS[n]}`
+      : photo.problem ?? "Перетащите углы, если метки не на месте";
+    this.$("place-schema").innerHTML = cornerSchema(n);
+    this.$("corners-restart").hidden = n === 0;
+    this.$("corners-done").disabled = !photo.homography;
   }
 
   /** Плашка «Сейчас: …» под камерой; у шага без разъёмов — пометка, что на плате его не подсветить. */

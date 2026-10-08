@@ -71,7 +71,7 @@
           <button id="camera-retry" type="button" hidden></button>
         </div>
 
-        <p id="frozen-note" class="hint" hidden>Кадр заморожен — приближайте и нажимайте на метки</p>
+        <p id="frozen-note" class="hint" hidden></p>
       </div>
 
       <button id="current-step" type="button" class="current-step" hidden>
@@ -81,16 +81,24 @@
       </button>
 
       <div id="place-bar" hidden>
-        <p id="place-hint"></p>
-        <div id="place-chips" class="chips"></div>
+        <svg id="place-schema" viewBox="0 0 100 100" aria-hidden="true"></svg>
+        <div>
+          <p id="place-hint" aria-live="polite"></p>
+          <div class="place-actions">
+            <button id="corners-restart" type="button">Заново</button>
+            <button id="corners-done" type="button" class="primary">Готово</button>
+          </div>
+        </div>
       </div>
 
       <div class="toolbar">
         <button id="freeze" type="button" class="primary">Заморозить</button>
+        <button id="torch" type="button" aria-pressed="false" hidden>Фонарик</button>
         <button id="to-photo" type="button">Режим фото</button>
         <button id="back-to-ar" type="button" class="primary">Вернуться в AR</button>
         <button id="take-photo" type="button" class="primary">Сделать фото</button>
         <button id="pick-photo" type="button">Выбрать из галереи</button>
+        <button id="fix-corners" type="button" hidden>Поправить углы</button>
       </div>
       <input id="file-capture" type="file" accept="image/*" capture="environment" hidden>
       <input id="file-gallery" type="file" accept="image/*" hidden>
@@ -108,9 +116,20 @@
     <p id="dialog-warning" class="warning" hidden></p>
     <div id="dialog-cables"></div>
     <a id="dialog-manual" target="_blank" rel="noopener"></a>
+    <p id="dialog-locked" class="locked-note" hidden></p>
     <div class="toolbar">
       <button id="dialog-toggle" type="button"></button>
       <button id="dialog-close" type="button">Закрыть</button>
+    </div>
+  </dialog>
+
+  <dialog id="uncheck-dialog" aria-labelledby="uncheck-title">
+    <h2 id="uncheck-title"></h2>
+    <p class="muted">Также снимутся отметки:</p>
+    <ul id="uncheck-list"></ul>
+    <div class="toolbar">
+      <button id="uncheck-confirm" type="button" class="primary">Снять отметки</button>
+      <button id="uncheck-cancel" type="button">Отмена</button>
     </div>
   </dialog>
 
