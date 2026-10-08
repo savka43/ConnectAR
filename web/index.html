@@ -26,13 +26,25 @@
 
   <main>
     <section id="tab-assembly" role="tabpanel">
-      <h2>Что устанавливаем</h2>
-      <div id="components" class="chips"></div>
+      <section id="setup" class="card" aria-labelledby="setup-title">
+        <div class="setup-head">
+          <h2 id="setup-title">Ваша сборка</h2>
+          <button id="setup-edit" type="button" hidden>Изменить</button>
+        </div>
+        <p id="setup-intro" class="muted">Ответьте на несколько вопросов — чек-лист и подсветка на плате подстроятся под ваши комплектующие.</p>
+        <p id="setup-summary" class="muted" hidden></p>
+        <form id="setup-form">
+          <div id="setup-questions"></div>
+          <button id="setup-done" type="submit" class="primary">Готово</button>
+        </form>
+      </section>
 
-      <h2>Шаги</h2>
-      <p id="progress"></p>
-      <ol id="steps"></ol>
-      <button id="reset" type="button">Сбросить прогресс</button>
+      <div id="checklist" hidden>
+        <h2>Шаги сборки</h2>
+        <p id="progress"></p>
+        <div id="phases"></div>
+        <button id="reset" type="button">Сбросить прогресс</button>
+      </div>
     </section>
 
     <section id="tab-camera" role="tabpanel" hidden>
@@ -62,6 +74,12 @@
         <p id="frozen-note" class="hint" hidden>Кадр заморожен — приближайте и нажимайте на метки</p>
       </div>
 
+      <button id="current-step" type="button" class="current-step" hidden>
+        <span class="badge">Сейчас</span>
+        <strong id="current-step-title"></strong>
+        <span id="current-step-note" class="muted">— этот шаг без разметки на плате</span>
+      </button>
+
       <div id="place-bar" hidden>
         <p id="place-hint"></p>
         <div id="place-chips" class="chips"></div>
@@ -86,6 +104,9 @@
     <h2 id="dialog-title"></h2>
     <p id="dialog-connector" class="muted"></p>
     <p id="dialog-instruction"></p>
+    <ol id="dialog-substeps"></ol>
+    <p id="dialog-warning" class="warning" hidden></p>
+    <div id="dialog-cables"></div>
     <a id="dialog-manual" target="_blank" rel="noopener"></a>
     <div class="toolbar">
       <button id="dialog-toggle" type="button"></button>

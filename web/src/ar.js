@@ -1,7 +1,7 @@
 // AR-сессия на MindAR: Tracker (якорь платы), Highlight (плоскости three.js на разъёмах),
 // Labels (HTML-кнопки в проекции центров разъёмов) и снимок кадра для заморозки.
 import { webAnchorPosition, webCorners, webSize } from "./layout.js";
-import { clampLabel } from "./markers.js";
+import { clampLabel, labelText } from "./markers.js";
 
 const MINDAR_SRC = "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js";
 
@@ -161,7 +161,7 @@ export class ARSession {
       const label = document.createElement("button");
       label.type = "button";
       label.className = `marker-label ${entry.state}`;
-      label.textContent = entry.connector.name;
+      label.textContent = labelText(entry.connector, entry.state);
       label.hidden = true;
       label.addEventListener("click", () => this.onSelect(entry));
       this.labelsLayer.append(label);

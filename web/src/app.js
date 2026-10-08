@@ -1,5 +1,6 @@
 import { CameraTab } from "./camera.js";
-import { stepStates, visibleSteps } from "./markers.js";
+import { stepStates } from "./markers.js";
+import { answersSummary, resolveCable } from "./plan.js";
 import { createSession } from "./session.js";
 
 // В GitHub Pages данные лежат рядом (./shared_boards), при локальном запуске из корня репозитория — уровнем выше.
@@ -37,46 +38,86 @@ function toast(text) {
   toast.timer = setTimeout(() => { el.hidden = true; }, 3000);
 }
 
-// ——— Сборка: компоненты и чек-лист ———
+// ——— Сборка: опрос и чек-лист ———
 
-function renderComponents() {
-  $("components").replaceChildren(...board.components.map((component) => {
-    const label = document.createElement("label");
-    label.className = "chip";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = session.selected.has(component.id);
-    input.addEventListener("change", () => session.setComponent(component.id, input.checked));
-    label.append(input, ` ${component.name}`);
-    return label;
+let editingSetup = false;
+
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children.filter((c) => c != null));
+  return node;
+}
+
+function renderSetup() {
+  const showForm = !session.configured || editingSetup;
+  $("setup-form").hidden = !showForm;
+  $("setup-intro").hidden = session.configured;
+  $("setup-summary").hidden = showForm;
+  $("setup-summary").textContent = answersSummary(board, session.answers);
+  $("setup-edit").hidden = showForm;
+  $("setup-done").textContent = session.configured ? "Готово" : "Построить чек-лист";
+  $("checklist").hidden = !session.configured;
+
+  $("setup-questions").replaceChildren(...board.setup.map((q) => {
+    const options = q.options.map((o) => {
+      const input = el("input", { type: "radio", name: `setup-${q.id}`, value: o.id, checked: session.answers[q.id] === o.id });
+      input.addEventListener("change", () => session.setAnswer(q.id, o.id));
+      return el("label", { className: "chip" }, input, o.title);
+    });
+    return el("fieldset", { className: "question" }, el("legend", {}, q.title), el("div", { className: "chips" }, ...options));
   }));
 }
 
+$("setup-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  editingSetup = false;
+  if (session.configured) renderAssembly();
+  else session.completeSetup();
+});
+$("setup-edit").addEventListener("click", () => {
+  editingSetup = true;
+  renderSetup();
+});
+
+function connectorNames(step) {
+  const byId = new Map(board.connectors.map((c) => [c.id, c]));
+  return step.connectorIds.map((id) => byId.get(id)?.name).filter(Boolean).join(", ");
+}
+
 function renderSteps() {
-  const connectors = new Map(board.connectors.map((c) => [c.id, c]));
-  const components = new Map(board.components.map((c) => [c.id, c]));
-  const steps = visibleSteps(board, session.selected);
-  const states = stepStates(board, session.selected, session.done);
+  const { plan, done } = session;
+  const states = stepStates(plan, done);
   const template = $("step-template");
 
-  $("steps").replaceChildren(...steps.map((step) => {
-    const connector = connectors.get(step.connectorId);
-    const item = template.content.firstElementChild.cloneNode(true);
-    const checkbox = item.querySelector("input");
-    item.className = states.get(step.id);
-    item.querySelector(".title").textContent = step.title;
-    item.querySelector(".connector").textContent = `${components.get(connector.componentId).name} → ${connector.name}`;
-    checkbox.checked = session.done.has(step.id);
-    checkbox.setAttribute("aria-label", step.title);
-    checkbox.addEventListener("change", () => session.setStepDone(step.id, checkbox.checked));
-    item.querySelector(".open").addEventListener("click", () => openStep(step));
-    return item;
-  }));
+  const sections = board.phases.map((phase) => {
+    const steps = plan.filter((s) => s.phaseId === phase.id);
+    if (steps.length === 0) return null;
+    const items = steps.map((step) => {
+      const item = template.content.firstElementChild.cloneNode(true);
+      const checkbox = item.querySelector("input");
+      item.className = states.get(step.id);
+      item.querySelector(".title").textContent = step.title;
+      item.querySelector(".connector").textContent = connectorNames(step) || "Без разметки на плате";
+      checkbox.checked = done.has(step.id);
+      checkbox.setAttribute("aria-label", step.title);
+      checkbox.addEventListener("change", () => session.setStepDone(step.id, checkbox.checked));
+      item.querySelector(".open").addEventListener("click", () => openStep(step));
+      return item;
+    });
+    const doneCount = steps.filter((s) => done.has(s.id)).length;
+    return el("section", { className: "phase" },
+      el("h3", {}, phase.title, el("span", { className: "muted" }, ` ${doneCount}/${steps.length}`)),
+      el("ol", { className: "steps" }, ...items));
+  });
+  $("phases").replaceChildren(...sections.filter(Boolean));
 
-  const doneCount = steps.filter((s) => session.done.has(s.id)).length;
-  $("progress").textContent = steps.length === 0
-    ? "Выберите компоненты, которые устанавливаете."
-    : doneCount === steps.length ? "Все шаги выполнены." : `Выполнено ${doneCount} из ${steps.length}`;
+  const doneCount = plan.filter((s) => done.has(s.id)).length;
+  $("progress").textContent = doneCount === plan.length ? "Все шаги выполнены." : `Выполнено ${doneCount} из ${plan.length}`;
+}
+
+function renderAssembly() {
+  renderSetup();
+  renderSteps();
 }
 
 // ——— Экран инструкции ———
@@ -89,19 +130,45 @@ function openStep(step) {
 }
 
 function renderDialog() {
-  const step = board.steps.find((s) => s.id === dialogStepId);
-  if (!step) return;
-  const connector = board.connectors.find((c) => c.id === step.connectorId);
-  const component = board.components.find((c) => c.id === connector.componentId);
-  const state = stepStates(board, session.selected, session.done).get(step.id);
+  const step = session.plan.find((s) => s.id === dialogStepId);
+  if (!step) {
+    $("step-dialog").close();
+    return;
+  }
+  const connectors = new Map(board.connectors.map((c) => [c.id, c]));
+  const cables = new Map((board.cables ?? []).map((c) => [c.id, c]));
+  const state = stepStates(session.plan, session.done).get(step.id);
   const done = session.done.has(step.id);
 
   $("dialog-title").textContent = step.title;
   $("dialog-badge").hidden = state !== "current";
-  $("dialog-connector").textContent = `${component.name} → ${connector.name}`;
+  $("dialog-connector").textContent = step.connectorIds.length
+    ? `На плате: ${step.connectorIds.map((id) => {
+      const c = connectors.get(id);
+      return c.hint ? `${c.name} (${c.hint})` : c.name;
+    }).join(", ")}`
+    : "Этот шаг без разметки на плате";
   $("dialog-instruction").textContent = step.instruction;
-  $("dialog-manual").href = `${board.manualURL}#page=${step.manualPage}`;
-  $("dialog-manual").textContent = `Руководство, стр. ${step.manualPage}`;
+  $("dialog-substeps").replaceChildren(...step.substeps.map((text) => el("li", {}, text)));
+  $("dialog-substeps").hidden = step.substeps.length === 0;
+  $("dialog-warning").textContent = step.warning ?? "";
+  $("dialog-warning").hidden = !step.warning;
+
+  $("dialog-cables").replaceChildren(...step.cableIds.map((id) => {
+    const cable = resolveCable(board, cables.get(id), session.answers);
+    return el("section", { className: "cable" },
+      el("h3", {}, cable.name),
+      el("p", {}, el("span", { className: "muted" }, "Подключается: "), cable.deviceSide),
+      cable.psuSide && el("p", {}, el("span", { className: "muted" }, "Со стороны блока питания: "), cable.psuSide),
+      cable.warning && el("p", { className: "warning" }, cable.warning));
+  }));
+
+  const manual = $("dialog-manual");
+  manual.hidden = !step.manualPage;
+  if (step.manualPage) {
+    manual.href = `${board.manualURL}#page=${step.manualPage}`;
+    manual.textContent = `Руководство, стр. ${step.manualPage}`;
+  }
   $("dialog-toggle").textContent = done ? "Снять отметку" : "Отметить выполненным";
   $("dialog-toggle").classList.toggle("primary", !done);
 }
@@ -141,13 +208,13 @@ for (const tab of document.querySelectorAll("[role=tab]")) {
 function selectBoard(boardId) {
   board = boardsById.get(boardId);
   session = createSession(board);
+  editingSetup = false;
   session.subscribe(() => {
-    renderSteps();
+    renderAssembly();
     if ($("step-dialog").open) renderDialog();
   });
   $("reset").onclick = () => session.reset();
-  renderComponents();
-  renderSteps();
+  renderAssembly();
   camera.setBoard(board, session, board.target ? `${dataRoot}/boards/${board.id}/targets.mind` : null);
 }
 

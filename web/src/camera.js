@@ -1,7 +1,7 @@
 // Вкладка «Камера»: AR по умолчанию, заморозка кадра и ручной фото-режим как запасной путь.
 // Любая ошибка ведёт в фото-режим, тупиков нет (docs/design-doc.md, раздел 4).
 import { ARSession, CameraAccessError, fetchTarget, isARSupported, isInAppBrowser, loadEngine } from "./ar.js";
-import { connectorStates } from "./markers.js";
+import { connectorStates, currentStep, labelText } from "./markers.js";
 import { BoardPhotoView } from "./photo-view.js";
 
 const TIPS_AFTER_MS = 10_000;
@@ -89,9 +89,9 @@ export class CameraTab {
     this.mode = "idle";
   }
 
-  /** Разъёмы выбранных компонентов с состоянием и шагом. */
+  /** Разъёмы из шагов плана с состоянием и шагом. */
   allEntries() {
-    return connectorStates(this.board, this.session.selected, this.session.done);
+    return connectorStates(this.board, this.session.plan, this.session.done);
   }
 
   /** То же для AR: без rectMm разъём на плате не показать. */
@@ -243,7 +243,8 @@ export class CameraTab {
     }
     if (this.manual) URL.revokeObjectURL(this.manual.url);
     this.manual = { url, positions: new Map() };
-    this.placingId = this.allEntries()[0]?.connector.id ?? null;
+    const entries = this.allEntries();
+    this.placingId = (entries.find((e) => e.state === "current") ?? entries[0])?.connector.id ?? null;
     this.mode = "photo";
     this.render();
   }
@@ -259,7 +260,7 @@ export class CameraTab {
     const byId = new Map(this.allEntries().map((e) => [e.connector.id, e]));
     const toMarker = (id, geometry) => {
       const entry = byId.get(id);
-      return entry && { id, label: entry.connector.name, state: entry.state, ...geometry };
+      return entry && { id, label: labelText(entry.connector, entry.state), state: entry.state, ...geometry };
     };
     if (this.mode === "frozen") return this.frozen.markers.map((m) => toMarker(m.id, m)).filter(Boolean);
     if (this.manual) return [...this.manual.positions].map(([id, center]) => toMarker(id, { center })).filter(Boolean);
@@ -344,5 +345,17 @@ export class CameraTab {
     this.$("pick-photo").hidden = mode !== "photo";
     this.$("frozen-note").hidden = mode !== "frozen";
     this.renderPlaceBar();
+    this.renderCurrentStep();
+  }
+
+  /** Плашка «Сейчас: …» под камерой; у шага без разъёмов — пометка, что на плате его не подсветить. */
+  renderCurrentStep() {
+    const step = currentStep(this.session.plan, this.session.done);
+    const bar = this.$("current-step");
+    bar.hidden = !step;
+    if (!step) return;
+    this.$("current-step-title").textContent = step.title;
+    this.$("current-step-note").hidden = step.connectorIds.length > 0;
+    bar.onclick = () => this.openStep(step);
   }
 }

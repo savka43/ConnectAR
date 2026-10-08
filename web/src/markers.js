@@ -1,16 +1,10 @@
-// Логика меток: состояние разъёмов по сессии сборки и попадание тапа в метку.
+// Логика меток: состояние шагов плана и разъёмов, текст метки, попадание тапа.
 
-/** Шаги выбранных компонентов в порядке сценария. */
-export function visibleSteps(board, selected) {
-  const connectors = new Map(board.connectors.map((c) => [c.id, c]));
-  return board.steps.filter((s) => selected.has(connectors.get(s.connectorId)?.componentId));
-}
-
-/** stepId → "current" | "done" | "pending"; current — первый невыполненный шаг среди выбранных. */
-export function stepStates(board, selected, done) {
+/** stepId → "current" | "done" | "pending"; current — первый невыполненный шаг плана. */
+export function stepStates(plan, done) {
   const states = new Map();
   let currentFound = false;
-  for (const step of visibleSteps(board, selected)) {
+  for (const step of plan) {
     if (done.has(step.id)) states.set(step.id, "done");
     else if (!currentFound) {
       states.set(step.id, "current");
@@ -20,16 +14,20 @@ export function stepStates(board, selected, done) {
   return states;
 }
 
+/** Текущий шаг плана или null, если всё выполнено. */
+export function currentStep(plan, done) {
+  return plan.find((s) => !done.has(s.id)) ?? null;
+}
+
 /**
- * Разъёмы выбранных компонентов с состоянием и шагом, который откроется по тапу.
+ * Разъёмы, на которые ссылаются шаги плана, с состоянием и шагом, который откроется по тапу.
  * Если на разъём ссылается несколько шагов: current, если среди них есть текущий; done, если все выполнены.
  */
-export function connectorStates(board, selected, done) {
-  const states = stepStates(board, selected, done);
+export function connectorStates(board, plan, done) {
+  const states = stepStates(plan, done);
   const result = [];
   for (const connector of board.connectors) {
-    if (!selected.has(connector.componentId)) continue;
-    const steps = board.steps.filter((s) => s.connectorId === connector.id && states.has(s.id));
+    const steps = plan.filter((s) => s.connectorIds.includes(connector.id));
     if (steps.length === 0) continue;
     const stepStatesOf = steps.map((s) => states.get(s.id));
     const state = stepStatesOf.includes("current") ? "current"
@@ -40,6 +38,11 @@ export function connectorStates(board, selected, done) {
     result.push({ connector, step, state });
   }
   return result;
+}
+
+/** Текст метки: имя разъёма, у текущего шага — с подсказкой («DDR4_2 · 2-й от CPU»). */
+export function labelText(connector, state) {
+  return state === "current" && connector.hint ? `${connector.name} · ${connector.hint}` : connector.name;
 }
 
 /** Позиция метки шириной width × height с центром в (x, y), прижатая внутрь области w × h. */

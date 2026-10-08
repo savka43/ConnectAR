@@ -1,49 +1,64 @@
 import { describe, expect, it } from "vitest";
-import { clampLabel, connectorStates, hitTest, pointInPolygon, stepStates, visibleSteps } from "../src/markers.js";
+import { clampLabel, connectorStates, currentStep, hitTest, labelText, pointInPolygon, stepStates } from "../src/markers.js";
 
 const board = {
-  components: [{ id: "ram" }, { id: "gpu" }, { id: "psu" }],
   connectors: [
-    { id: "dimm", componentId: "ram" },
-    { id: "pcie", componentId: "gpu" },
-    { id: "atx", componentId: "psu" },
-  ],
-  steps: [
-    { id: "ram", connectorId: "dimm" },
-    { id: "gpu", connectorId: "pcie" },
-    { id: "atx", connectorId: "atx" },
+    { id: "dimm-a", name: "DIMM_A", hint: "2-й от CPU" },
+    { id: "dimm-b", name: "DIMM_B", hint: "4-й от CPU" },
+    { id: "pcie", name: "PCIE" },
+    { id: "atx", name: "ATX" },
+    { id: "unused", name: "UNUSED" },
   ],
 };
-const all = new Set(["ram", "gpu", "psu"]);
+const plan = [
+  { id: "ram", connectorIds: ["dimm-a", "dimm-b"] },
+  { id: "case", connectorIds: [] },
+  { id: "gpu", connectorIds: ["pcie"] },
+  { id: "atx", connectorIds: ["atx"] },
+];
 
 describe("состояния шагов", () => {
   it("первый невыполненный — current, выполненные — done, остальные — pending", () => {
-    const states = stepStates(board, all, new Set(["ram"]));
-    expect([...states]).toEqual([["ram", "done"], ["gpu", "current"], ["atx", "pending"]]);
+    const states = stepStates(plan, new Set(["ram"]));
+    expect([...states]).toEqual([["ram", "done"], ["case", "current"], ["gpu", "pending"], ["atx", "pending"]]);
   });
 
-  it("невыбранные компоненты скрыты и не становятся текущими", () => {
-    const selected = new Set(["ram", "psu"]);
-    expect(visibleSteps(board, selected).map((s) => s.id)).toEqual(["ram", "atx"]);
-    const states = connectorStates(board, selected, new Set(["ram"]));
-    expect(states.map((s) => [s.connector.id, s.state])).toEqual([["dimm", "done"], ["atx", "current"]]);
+  it("текущим может быть шаг без разъёмов; когда всё сделано — текущего нет", () => {
+    expect(currentStep(plan, new Set(["ram"])).id).toBe("case");
+    expect(currentStep(plan, new Set(["ram", "case", "gpu", "atx"]))).toBeNull();
+  });
+
+  it("выполненные id, которых нет в плане, не мешают", () => {
+    expect(stepStates(plan, new Set(["removed", "ram"])).get("case")).toBe("current");
+  });
+});
+
+describe("разъёмы", () => {
+  it("шаг с несколькими разъёмами подсвечивает их все; разъёмы вне плана скрыты", () => {
+    const states = connectorStates(board, plan, new Set());
+    expect(states.map((s) => [s.connector.id, s.state])).toEqual([
+      ["dimm-a", "current"], ["dimm-b", "current"], ["pcie", "pending"], ["atx", "pending"],
+    ]);
   });
 
   it("отметка шага сдвигает текущий", () => {
-    const done = new Set();
-    expect(stepStates(board, all, done).get("ram")).toBe("current");
-    done.add("ram");
-    expect(stepStates(board, all, done).get("gpu")).toBe("current");
-    done.add("gpu").add("atx");
-    expect([...stepStates(board, all, done).values()]).not.toContain("current");
+    const states = connectorStates(board, plan, new Set(["ram", "case"]));
+    expect(states.map((s) => [s.connector.id, s.state])).toEqual([
+      ["dimm-a", "done"], ["dimm-b", "done"], ["pcie", "current"], ["atx", "pending"],
+    ]);
   });
 
   it("разъём с несколькими шагами открывает невыполненный шаг", () => {
-    const multi = { ...board, steps: [...board.steps, { id: "atx-check", connectorId: "atx" }] };
-    const states = connectorStates(multi, all, new Set(["ram", "gpu", "atx"]));
-    const atx = states.find((s) => s.connector.id === "atx");
+    const multi = [...plan, { id: "atx-check", connectorIds: ["atx"] }];
+    const atx = connectorStates(board, multi, new Set(["ram", "case", "gpu", "atx"])).find((s) => s.connector.id === "atx");
     expect(atx.state).toBe("current");
     expect(atx.step.id).toBe("atx-check");
+  });
+
+  it("подсказка добавляется к метке только у текущего шага", () => {
+    expect(labelText(board.connectors[0], "current")).toBe("DIMM_A · 2-й от CPU");
+    expect(labelText(board.connectors[0], "pending")).toBe("DIMM_A");
+    expect(labelText(board.connectors[2], "current")).toBe("PCIE");
   });
 });
 
