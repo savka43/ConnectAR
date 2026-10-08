@@ -1,0 +1,743 @@
+{
+  "description": "Мини-плата, ответы опроса и ожидаемый план сборки. Прогоняются во всех клиентах и проверяются validate.mjs (правила — shared_boards/README.md, «План сборки»).",
+  "board": {
+    "id": "fixture-board",
+    "name": "Мини-плата",
+    "manualURL": "https://example.com/manual.pdf",
+    "physical": {
+      "widthMm": 100,
+      "heightMm": 100
+    },
+    "setup": [
+      {
+        "id": "ram",
+        "title": "Память",
+        "options": [
+          {
+            "id": "1",
+            "title": "1"
+          },
+          {
+            "id": "2",
+            "title": "2"
+          }
+        ],
+        "default": "2"
+      },
+      {
+        "id": "ssd",
+        "title": "SSD",
+        "options": [
+          {
+            "id": "0",
+            "title": "0"
+          },
+          {
+            "id": "1",
+            "title": "1"
+          },
+          {
+            "id": "2",
+            "title": "2"
+          }
+        ],
+        "default": "0"
+      },
+      {
+        "id": "hdd",
+        "title": "HDD",
+        "options": [
+          {
+            "id": "0",
+            "title": "0"
+          },
+          {
+            "id": "1",
+            "title": "1"
+          }
+        ],
+        "default": "0"
+      },
+      {
+        "id": "gpu",
+        "title": "GPU",
+        "options": [
+          {
+            "id": "yes",
+            "title": "Да"
+          },
+          {
+            "id": "no",
+            "title": "Нет"
+          }
+        ],
+        "default": "yes"
+      },
+      {
+        "id": "psu",
+        "title": "БП",
+        "options": [
+          {
+            "id": "fixed",
+            "title": "Немодульный"
+          },
+          {
+            "id": "modular",
+            "title": "Модульный"
+          }
+        ],
+        "default": "fixed"
+      }
+    ],
+    "phases": [
+      {
+        "id": "bench",
+        "title": "Стол"
+      },
+      {
+        "id": "wiring",
+        "title": "Подключение"
+      }
+    ],
+    "connectors": [
+      {
+        "id": "dimm-a",
+        "name": "DIMM_A",
+        "rectMm": {
+          "x": 1,
+          "y": 1,
+          "w": 1,
+          "h": 1
+        }
+      },
+      {
+        "id": "dimm-b",
+        "name": "DIMM_B",
+        "rectMm": {
+          "x": 3,
+          "y": 1,
+          "w": 1,
+          "h": 1
+        }
+      },
+      {
+        "id": "sata-0",
+        "name": "SATA 0",
+        "rectMm": {
+          "x": 1,
+          "y": 5,
+          "w": 1,
+          "h": 1
+        }
+      },
+      {
+        "id": "sata-1",
+        "name": "SATA 1",
+        "rectMm": {
+          "x": 3,
+          "y": 5,
+          "w": 1,
+          "h": 1
+        }
+      },
+      {
+        "id": "sata-2",
+        "name": "SATA 2",
+        "rectMm": {
+          "x": 5,
+          "y": 5,
+          "w": 1,
+          "h": 1
+        }
+      },
+      {
+        "id": "pcie",
+        "name": "PCIE",
+        "rectMm": {
+          "x": 1,
+          "y": 8,
+          "w": 5,
+          "h": 1
+        }
+      }
+    ],
+    "pools": {
+      "sata": [
+        "sata-0",
+        "sata-1",
+        "sata-2"
+      ]
+    },
+    "cables": [
+      {
+        "id": "power",
+        "name": "Питание",
+        "deviceSide": "Плата",
+        "psuSide": "Жгут из БП",
+        "warning": "Общее предупреждение",
+        "variants": [
+          {
+            "when": {
+              "psu": [
+                "modular"
+              ]
+            },
+            "psuSide": "Гнездо MB на БП"
+          }
+        ]
+      },
+      {
+        "id": "data",
+        "name": "Данные",
+        "deviceSide": "Порт на плате"
+      }
+    ],
+    "steps": [
+      {
+        "id": "ram",
+        "phaseId": "bench",
+        "title": "Память",
+        "connectorIds": [
+          "dimm-a",
+          "dimm-b"
+        ],
+        "instruction": "Два модуля",
+        "substeps": [
+          "Открыть защёлки"
+        ],
+        "warning": "Одинаковые модули",
+        "variants": [
+          {
+            "when": {
+              "ram": [
+                "1"
+              ]
+            },
+            "connectorIds": [
+              "dimm-b"
+            ],
+            "instruction": "Один модуль"
+          }
+        ]
+      },
+      {
+        "id": "ssd",
+        "phaseId": "wiring",
+        "title": "SSD №{n}",
+        "repeat": "ssd",
+        "pool": "sata",
+        "cableIds": [
+          "data",
+          "power"
+        ],
+        "instruction": "SSD №{n} в {port}",
+        "substeps": [
+          "Кабель в {port}"
+        ]
+      },
+      {
+        "id": "hdd",
+        "phaseId": "wiring",
+        "title": "HDD №{n}",
+        "repeat": "hdd",
+        "pool": "sata",
+        "cableIds": [
+          "data",
+          "power"
+        ],
+        "instruction": "HDD №{n} в {port}"
+      },
+      {
+        "id": "gpu",
+        "phaseId": "wiring",
+        "title": "Видеокарта",
+        "when": {
+          "gpu": [
+            "yes"
+          ]
+        },
+        "connectorIds": [
+          "pcie"
+        ],
+        "cableIds": [
+          "power"
+        ],
+        "instruction": "В PCIE"
+      },
+      {
+        "id": "boot",
+        "phaseId": "wiring",
+        "title": "Запуск",
+        "instruction": "Включить",
+        "variants": [
+          {
+            "when": {
+              "gpu": [
+                "no"
+              ],
+              "ram": [
+                "1"
+              ]
+            },
+            "warning": "Нужна встроенная графика"
+          }
+        ]
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "ответы по умолчанию",
+      "answers": {},
+      "expected": {
+        "steps": [
+          {
+            "id": "ram",
+            "phaseId": "bench",
+            "title": "Память",
+            "connectorIds": [
+              "dimm-a",
+              "dimm-b"
+            ],
+            "cableIds": [],
+            "instruction": "Два модуля",
+            "substeps": [
+              "Открыть защёлки"
+            ],
+            "warning": "Одинаковые модули"
+          },
+          {
+            "id": "gpu",
+            "phaseId": "wiring",
+            "title": "Видеокарта",
+            "connectorIds": [
+              "pcie"
+            ],
+            "cableIds": [
+              "power"
+            ],
+            "instruction": "В PCIE",
+            "substeps": [],
+            "warning": null
+          },
+          {
+            "id": "boot",
+            "phaseId": "wiring",
+            "title": "Запуск",
+            "connectorIds": [],
+            "cableIds": [],
+            "instruction": "Включить",
+            "substeps": [],
+            "warning": null
+          }
+        ],
+        "cables": {
+          "power": {
+            "psuSide": "Жгут из БП",
+            "warning": "Общее предупреждение"
+          },
+          "data": {
+            "psuSide": null,
+            "warning": null
+          }
+        }
+      }
+    },
+    {
+      "name": "вариант шага: один модуль",
+      "answers": {
+        "ram": "1"
+      },
+      "expected": {
+        "steps": [
+          {
+            "id": "ram",
+            "phaseId": "bench",
+            "title": "Память",
+            "connectorIds": [
+              "dimm-b"
+            ],
+            "cableIds": [],
+            "instruction": "Один модуль",
+            "substeps": [
+              "Открыть защёлки"
+            ],
+            "warning": "Одинаковые модули"
+          },
+          {
+            "id": "gpu",
+            "phaseId": "wiring",
+            "title": "Видеокарта",
+            "connectorIds": [
+              "pcie"
+            ],
+            "cableIds": [
+              "power"
+            ],
+            "instruction": "В PCIE",
+            "substeps": [],
+            "warning": null
+          },
+          {
+            "id": "boot",
+            "phaseId": "wiring",
+            "title": "Запуск",
+            "connectorIds": [],
+            "cableIds": [],
+            "instruction": "Включить",
+            "substeps": [],
+            "warning": null
+          }
+        ],
+        "cables": {
+          "power": {
+            "psuSide": "Жгут из БП",
+            "warning": "Общее предупреждение"
+          },
+          "data": {
+            "psuSide": null,
+            "warning": null
+          }
+        }
+      }
+    },
+    {
+      "name": "повторы делят пул по порядку шагов",
+      "answers": {
+        "ssd": "2",
+        "hdd": "1"
+      },
+      "expected": {
+        "steps": [
+          {
+            "id": "ram",
+            "phaseId": "bench",
+            "title": "Память",
+            "connectorIds": [
+              "dimm-a",
+              "dimm-b"
+            ],
+            "cableIds": [],
+            "instruction": "Два модуля",
+            "substeps": [
+              "Открыть защёлки"
+            ],
+            "warning": "Одинаковые модули"
+          },
+          {
+            "id": "ssd-1",
+            "phaseId": "wiring",
+            "title": "SSD №1",
+            "connectorIds": [
+              "sata-0"
+            ],
+            "cableIds": [
+              "data",
+              "power"
+            ],
+            "instruction": "SSD №1 в SATA 0",
+            "substeps": [
+              "Кабель в SATA 0"
+            ],
+            "warning": null
+          },
+          {
+            "id": "ssd-2",
+            "phaseId": "wiring",
+            "title": "SSD №2",
+            "connectorIds": [
+              "sata-1"
+            ],
+            "cableIds": [
+              "data",
+              "power"
+            ],
+            "instruction": "SSD №2 в SATA 1",
+            "substeps": [
+              "Кабель в SATA 1"
+            ],
+            "warning": null
+          },
+          {
+            "id": "hdd-1",
+            "phaseId": "wiring",
+            "title": "HDD №1",
+            "connectorIds": [
+              "sata-2"
+            ],
+            "cableIds": [
+              "data",
+              "power"
+            ],
+            "instruction": "HDD №1 в SATA 2",
+            "substeps": [],
+            "warning": null
+          },
+          {
+            "id": "gpu",
+            "phaseId": "wiring",
+            "title": "Видеокарта",
+            "connectorIds": [
+              "pcie"
+            ],
+            "cableIds": [
+              "power"
+            ],
+            "instruction": "В PCIE",
+            "substeps": [],
+            "warning": null
+          },
+          {
+            "id": "boot",
+            "phaseId": "wiring",
+            "title": "Запуск",
+            "connectorIds": [],
+            "cableIds": [],
+            "instruction": "Включить",
+            "substeps": [],
+            "warning": null
+          }
+        ],
+        "cables": {
+          "power": {
+            "psuSide": "Жгут из БП",
+            "warning": "Общее предупреждение"
+          },
+          "data": {
+            "psuSide": null,
+            "warning": null
+          }
+        }
+      }
+    },
+    {
+      "name": "условие when исключает шаг; вариант с двумя условиями",
+      "answers": {
+        "gpu": "no",
+        "ram": "1"
+      },
+      "expected": {
+        "steps": [
+          {
+            "id": "ram",
+            "phaseId": "bench",
+            "title": "Память",
+            "connectorIds": [
+              "dimm-b"
+            ],
+            "cableIds": [],
+            "instruction": "Один модуль",
+            "substeps": [
+              "Открыть защёлки"
+            ],
+            "warning": "Одинаковые модули"
+          },
+          {
+            "id": "boot",
+            "phaseId": "wiring",
+            "title": "Запуск",
+            "connectorIds": [],
+            "cableIds": [],
+            "instruction": "Включить",
+            "substeps": [],
+            "warning": "Нужна встроенная графика"
+          }
+        ],
+        "cables": {
+          "power": {
+            "psuSide": "Жгут из БП",
+            "warning": "Общее предупреждение"
+          },
+          "data": {
+            "psuSide": null,
+            "warning": null
+          }
+        }
+      }
+    },
+    {
+      "name": "вариант не срабатывает, если выполнено не всё условие",
+      "answers": {
+        "gpu": "no",
+        "ram": "2"
+      },
+      "expected": {
+        "steps": [
+          {
+            "id": "ram",
+            "phaseId": "bench",
+            "title": "Память",
+            "connectorIds": [
+              "dimm-a",
+              "dimm-b"
+            ],
+            "cableIds": [],
+            "instruction": "Два модуля",
+            "substeps": [
+              "Открыть защёлки"
+            ],
+            "warning": "Одинаковые модули"
+          },
+          {
+            "id": "boot",
+            "phaseId": "wiring",
+            "title": "Запуск",
+            "connectorIds": [],
+            "cableIds": [],
+            "instruction": "Включить",
+            "substeps": [],
+            "warning": null
+          }
+        ],
+        "cables": {
+          "power": {
+            "psuSide": "Жгут из БП",
+            "warning": "Общее предупреждение"
+          },
+          "data": {
+            "psuSide": null,
+            "warning": null
+          }
+        }
+      }
+    },
+    {
+      "name": "неизвестные ответы заменяются значениями по умолчанию",
+      "answers": {
+        "ram": "8",
+        "ssd": "x",
+        "unknown": "1"
+      },
+      "expected": {
+        "steps": [
+          {
+            "id": "ram",
+            "phaseId": "bench",
+            "title": "Память",
+            "connectorIds": [
+              "dimm-a",
+              "dimm-b"
+            ],
+            "cableIds": [],
+            "instruction": "Два модуля",
+            "substeps": [
+              "Открыть защёлки"
+            ],
+            "warning": "Одинаковые модули"
+          },
+          {
+            "id": "gpu",
+            "phaseId": "wiring",
+            "title": "Видеокарта",
+            "connectorIds": [
+              "pcie"
+            ],
+            "cableIds": [
+              "power"
+            ],
+            "instruction": "В PCIE",
+            "substeps": [],
+            "warning": null
+          },
+          {
+            "id": "boot",
+            "phaseId": "wiring",
+            "title": "Запуск",
+            "connectorIds": [],
+            "cableIds": [],
+            "instruction": "Включить",
+            "substeps": [],
+            "warning": null
+          }
+        ],
+        "cables": {
+          "power": {
+            "psuSide": "Жгут из БП",
+            "warning": "Общее предупреждение"
+          },
+          "data": {
+            "psuSide": null,
+            "warning": null
+          }
+        }
+      }
+    },
+    {
+      "name": "вариант кабеля по типу БП",
+      "answers": {
+        "psu": "modular",
+        "ssd": "1"
+      },
+      "expected": {
+        "steps": [
+          {
+            "id": "ram",
+            "phaseId": "bench",
+            "title": "Память",
+            "connectorIds": [
+              "dimm-a",
+              "dimm-b"
+            ],
+            "cableIds": [],
+            "instruction": "Два модуля",
+            "substeps": [
+              "Открыть защёлки"
+            ],
+            "warning": "Одинаковые модули"
+          },
+          {
+            "id": "ssd-1",
+            "phaseId": "wiring",
+            "title": "SSD №1",
+            "connectorIds": [
+              "sata-0"
+            ],
+            "cableIds": [
+              "data",
+              "power"
+            ],
+            "instruction": "SSD №1 в SATA 0",
+            "substeps": [
+              "Кабель в SATA 0"
+            ],
+            "warning": null
+          },
+          {
+            "id": "gpu",
+            "phaseId": "wiring",
+            "title": "Видеокарта",
+            "connectorIds": [
+              "pcie"
+            ],
+            "cableIds": [
+              "power"
+            ],
+            "instruction": "В PCIE",
+            "substeps": [],
+            "warning": null
+          },
+          {
+            "id": "boot",
+            "phaseId": "wiring",
+            "title": "Запуск",
+            "connectorIds": [],
+            "cableIds": [],
+            "instruction": "Включить",
+            "substeps": [],
+            "warning": null
+          }
+        ],
+        "cables": {
+          "power": {
+            "psuSide": "Гнездо MB на БП",
+            "warning": "Общее предупреждение"
+          },
+          "data": {
+            "psuSide": null,
+            "warning": null
+          }
+        }
+      }
+    }
+  ]
+}

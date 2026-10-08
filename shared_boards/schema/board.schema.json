@@ -3,10 +3,28 @@
   "$id": "https://connectar/shared_boards/schema/board.schema.json",
   "title": "ConnectAR board",
   "type": "object",
-  "required": ["schemaVersion", "id", "name", "physical", "manualURL", "components", "connectors", "steps"],
+  "required": ["schemaVersion", "id", "name", "physical", "manualURL", "setup", "phases", "connectors", "steps"],
   "additionalProperties": false,
   "$defs": {
     "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "text": { "type": "string", "minLength": 1 },
+    "ids": { "type": "array", "items": { "$ref": "#/$defs/id" }, "uniqueItems": true },
+    "when": {
+      "description": "Условие по ответам опроса: id вопроса → допустимые id вариантов. Выполняется, если совпали все вопросы.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } }
+    },
+    "icons": {
+      "description": "Платформенные имена иконок: ios — SF Symbol, android — Material Symbol, web — любой идентификатор.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ios": { "type": "string" },
+        "android": { "type": "string" },
+        "web": { "type": "string" }
+      }
+    },
     "rectMm": {
       "description": "Прямоугольник разъёма в миллиметрах; начало координат — левый верхний угол платы (задняя I/O-панель слева), x/y — левый верхний угол разъёма.",
       "type": "object",
@@ -18,13 +36,25 @@
         "w": { "type": "number", "exclusiveMinimum": 0 },
         "h": { "type": "number", "exclusiveMinimum": 0 }
       }
+    },
+    "stepFields": {
+      "description": "Поля шага, которые может переопределить вариант. В текстах {n} — номер повтора, {port} — имя разъёма из пула.",
+      "type": "object",
+      "properties": {
+        "title": { "$ref": "#/$defs/text" },
+        "connectorIds": { "$ref": "#/$defs/ids" },
+        "cableIds": { "$ref": "#/$defs/ids" },
+        "instruction": { "$ref": "#/$defs/text" },
+        "substeps": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+        "warning": { "$ref": "#/$defs/text" }
+      }
     }
   },
   "properties": {
     "$schema": { "type": "string" },
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "id": { "$ref": "#/$defs/id" },
-    "name": { "type": "string", "minLength": 1 },
+    "name": { "$ref": "#/$defs/text" },
     "revision": { "type": "string" },
     "physical": {
       "description": "Реальный размер платы в миллиметрах; задаёт масштаб для AR-движка.",
@@ -50,26 +80,45 @@
       }
     },
     "manualURL": { "type": "string", "format": "uri" },
-    "components": {
+    "setup": {
+      "description": "Опрос «Ваша сборка». Ответ на вопрос — id варианта. Вопрос, на который ссылается repeat, должен иметь варианты-числа.",
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "name"],
+        "required": ["id", "title", "options", "default"],
         "additionalProperties": false,
         "properties": {
           "id": { "$ref": "#/$defs/id" },
-          "name": { "type": "string", "minLength": 1 },
-          "icons": {
-            "description": "Платформенные имена иконок: ios — SF Symbol, android — Material Symbol, web — любой идентификатор.",
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "ios": { "type": "string" },
-              "android": { "type": "string" },
-              "web": { "type": "string" }
+          "title": { "$ref": "#/$defs/text" },
+          "options": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "required": ["id", "title"],
+              "additionalProperties": false,
+              "properties": {
+                "id": { "$ref": "#/$defs/id" },
+                "title": { "$ref": "#/$defs/text" }
+              }
             }
-          }
+          },
+          "default": { "$ref": "#/$defs/id" }
+        }
+      }
+    },
+    "phases": {
+      "description": "Этапы сборки в порядке выполнения; группируют шаги в чек-листе.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "title": { "$ref": "#/$defs/text" }
         }
       }
     },
@@ -78,29 +127,82 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "name", "componentId"],
+        "required": ["id", "name"],
         "additionalProperties": false,
         "properties": {
           "id": { "$ref": "#/$defs/id" },
-          "name": { "type": "string", "minLength": 1 },
-          "componentId": { "$ref": "#/$defs/id" },
+          "name": { "$ref": "#/$defs/text" },
+          "hint": { "description": "Короткое уточнение для метки, например «2-й от CPU».", "$ref": "#/$defs/text" },
           "rectMm": { "$ref": "#/$defs/rectMm" }
         }
       }
     },
+    "pools": {
+      "description": "Наборы разъёмов, которые повторяющиеся шаги занимают по очереди (например, порты SATA).",
+      "type": "object",
+      "additionalProperties": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" }, "uniqueItems": true }
+    },
+    "cables": {
+      "description": "Кабели, в том числе от блока питания. psuSide показывается в блоке «Со стороны блока питания».",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "deviceSide"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "name": { "$ref": "#/$defs/text" },
+          "deviceSide": { "$ref": "#/$defs/text" },
+          "psuSide": { "$ref": "#/$defs/text" },
+          "warning": { "$ref": "#/$defs/text" },
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["when"],
+              "additionalProperties": false,
+              "properties": {
+                "when": { "$ref": "#/$defs/when" },
+                "psuSide": { "$ref": "#/$defs/text" },
+                "warning": { "$ref": "#/$defs/text" }
+              }
+            }
+          }
+        }
+      }
+    },
     "steps": {
+      "description": "Шаги в порядке выполнения. Шаг входит в план, если выполнено when; repeat размножает его по числу из ответа; первый подходящий вариант переопределяет поля.",
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "title", "connectorId", "instruction", "manualPage"],
+        "required": ["id", "phaseId", "title", "instruction"],
         "additionalProperties": false,
         "properties": {
           "id": { "$ref": "#/$defs/id" },
-          "title": { "type": "string", "minLength": 1 },
-          "connectorId": { "$ref": "#/$defs/id" },
-          "instruction": { "type": "string", "minLength": 1 },
-          "manualPage": { "type": "integer", "minimum": 1 }
+          "phaseId": { "$ref": "#/$defs/id" },
+          "title": { "$ref": "#/$defs/text" },
+          "icons": { "$ref": "#/$defs/icons" },
+          "when": { "$ref": "#/$defs/when" },
+          "repeat": { "description": "id вопроса опроса с вариантами-числами: шаг повторяется столько раз.", "$ref": "#/$defs/id" },
+          "pool": { "description": "Пул, из которого каждый повтор занимает следующий разъём ({port}).", "$ref": "#/$defs/id" },
+          "connectorIds": { "$ref": "#/$defs/ids" },
+          "cableIds": { "$ref": "#/$defs/ids" },
+          "instruction": { "$ref": "#/$defs/text" },
+          "substeps": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+          "warning": { "$ref": "#/$defs/text" },
+          "manualPage": { "type": "integer", "minimum": 1 },
+          "variants": {
+            "type": "array",
+            "items": {
+              "allOf": [{ "$ref": "#/$defs/stepFields" }],
+              "type": "object",
+              "required": ["when"],
+              "unevaluatedProperties": false,
+              "properties": { "when": { "$ref": "#/$defs/when" } }
+            }
+          }
         }
       }
     }
