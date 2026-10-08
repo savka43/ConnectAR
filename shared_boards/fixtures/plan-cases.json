@@ -245,7 +245,10 @@
           "data",
           "power"
         ],
-        "instruction": "HDD №{n} в {port}"
+        "instruction": "HDD №{n} в {port}",
+        "requires": [
+          "ssd"
+        ]
       },
       {
         "id": "gpu",
@@ -281,6 +284,12 @@
             },
             "warning": "Нужна встроенная графика"
           }
+        ],
+        "requires": [
+          "ram",
+          "ssd",
+          "hdd",
+          "gpu"
         ]
       }
     ]
@@ -304,7 +313,8 @@
             "substeps": [
               "Открыть защёлки"
             ],
-            "warning": "Одинаковые модули"
+            "warning": "Одинаковые модули",
+            "requires": []
           },
           {
             "id": "gpu",
@@ -318,7 +328,8 @@
             ],
             "instruction": "В PCIE",
             "substeps": [],
-            "warning": null
+            "warning": null,
+            "requires": []
           },
           {
             "id": "boot",
@@ -328,7 +339,11 @@
             "cableIds": [],
             "instruction": "Включить",
             "substeps": [],
-            "warning": null
+            "warning": null,
+            "requires": [
+              "ram",
+              "gpu"
+            ]
           }
         ],
         "cables": {
@@ -362,7 +377,8 @@
             "substeps": [
               "Открыть защёлки"
             ],
-            "warning": "Одинаковые модули"
+            "warning": "Одинаковые модули",
+            "requires": []
           },
           {
             "id": "gpu",
@@ -376,7 +392,8 @@
             ],
             "instruction": "В PCIE",
             "substeps": [],
-            "warning": null
+            "warning": null,
+            "requires": []
           },
           {
             "id": "boot",
@@ -386,7 +403,11 @@
             "cableIds": [],
             "instruction": "Включить",
             "substeps": [],
-            "warning": null
+            "warning": null,
+            "requires": [
+              "ram",
+              "gpu"
+            ]
           }
         ],
         "cables": {
@@ -422,7 +443,8 @@
             "substeps": [
               "Открыть защёлки"
             ],
-            "warning": "Одинаковые модули"
+            "warning": "Одинаковые модули",
+            "requires": []
           },
           {
             "id": "ssd-1",
@@ -439,7 +461,8 @@
             "substeps": [
               "Кабель в SATA 0"
             ],
-            "warning": null
+            "warning": null,
+            "requires": []
           },
           {
             "id": "ssd-2",
@@ -456,7 +479,8 @@
             "substeps": [
               "Кабель в SATA 1"
             ],
-            "warning": null
+            "warning": null,
+            "requires": []
           },
           {
             "id": "hdd-1",
@@ -471,7 +495,11 @@
             ],
             "instruction": "HDD №1 в SATA 2",
             "substeps": [],
-            "warning": null
+            "warning": null,
+            "requires": [
+              "ssd-1",
+              "ssd-2"
+            ]
           },
           {
             "id": "gpu",
@@ -485,7 +513,8 @@
             ],
             "instruction": "В PCIE",
             "substeps": [],
-            "warning": null
+            "warning": null,
+            "requires": []
           },
           {
             "id": "boot",
@@ -495,7 +524,14 @@
             "cableIds": [],
             "instruction": "Включить",
             "substeps": [],
-            "warning": null
+            "warning": null,
+            "requires": [
+              "ram",
+              "ssd-1",
+              "ssd-2",
+              "hdd-1",
+              "gpu"
+            ]
           }
         ],
         "cables": {
@@ -530,7 +566,8 @@
             "substeps": [
               "Открыть защёлки"
             ],
-            "warning": "Одинаковые модули"
+            "warning": "Одинаковые модули",
+            "requires": []
           },
           {
             "id": "boot",
@@ -540,7 +577,10 @@
             "cableIds": [],
             "instruction": "Включить",
             "substeps": [],
-            "warning": "Нужна встроенная графика"
+            "warning": "Нужна встроенная графика",
+            "requires": [
+              "ram"
+            ]
           }
         ],
         "cables": {
@@ -576,7 +616,8 @@
             "substeps": [
               "Открыть защёлки"
             ],
-            "warning": "Одинаковые модули"
+            "warning": "Одинаковые модули",
+            "requires": []
           },
           {
             "id": "boot",
@@ -586,7 +627,10 @@
             "cableIds": [],
             "instruction": "Включить",
             "substeps": [],
-            "warning": null
+            "warning": null,
+            "requires": [
+              "ram"
+            ]
           }
         ],
         "cables": {
@@ -623,7 +667,8 @@
             "substeps": [
               "Открыть защёлки"
             ],
-            "warning": "Одинаковые модули"
+            "warning": "Одинаковые модули",
+            "requires": []
           },
           {
             "id": "gpu",
@@ -637,7 +682,8 @@
             ],
             "instruction": "В PCIE",
             "substeps": [],
-            "warning": null
+            "warning": null,
+            "requires": []
           },
           {
             "id": "boot",
@@ -647,7 +693,11 @@
             "cableIds": [],
             "instruction": "Включить",
             "substeps": [],
-            "warning": null
+            "warning": null,
+            "requires": [
+              "ram",
+              "gpu"
+            ]
           }
         ],
         "cables": {
@@ -683,7 +733,8 @@
             "substeps": [
               "Открыть защёлки"
             ],
-            "warning": "Одинаковые модули"
+            "warning": "Одинаковые модули",
+            "requires": []
           },
           {
             "id": "ssd-1",
@@ -700,7 +751,8 @@
             "substeps": [
               "Кабель в SATA 0"
             ],
-            "warning": null
+            "warning": null,
+            "requires": []
           },
           {
             "id": "gpu",
@@ -714,7 +766,8 @@
             ],
             "instruction": "В PCIE",
             "substeps": [],
-            "warning": null
+            "warning": null,
+            "requires": []
           },
           {
             "id": "boot",
@@ -724,7 +777,12 @@
             "cableIds": [],
             "instruction": "Включить",
             "substeps": [],
-            "warning": null
+            "warning": null,
+            "requires": [
+              "ram",
+              "ssd-1",
+              "gpu"
+            ]
           }
         ],
         "cables": {
@@ -737,6 +795,119 @@
             "warning": null
           }
         }
+      }
+    },
+    {
+      "name": "requires: повтор в 0 экземпляров выпадает из условия",
+      "answers": {
+        "hdd": "1"
+      },
+      "expected": {
+        "steps": [
+          {
+            "id": "ram",
+            "phaseId": "bench",
+            "title": "Память",
+            "connectorIds": [
+              "dimm-a",
+              "dimm-b"
+            ],
+            "cableIds": [],
+            "instruction": "Два модуля",
+            "substeps": [
+              "Открыть защёлки"
+            ],
+            "warning": "Одинаковые модули",
+            "requires": []
+          },
+          {
+            "id": "hdd-1",
+            "phaseId": "wiring",
+            "title": "HDD №1",
+            "connectorIds": [
+              "sata-0"
+            ],
+            "cableIds": [
+              "data",
+              "power"
+            ],
+            "instruction": "HDD №1 в SATA 0",
+            "substeps": [],
+            "warning": null,
+            "requires": []
+          },
+          {
+            "id": "gpu",
+            "phaseId": "wiring",
+            "title": "Видеокарта",
+            "connectorIds": [
+              "pcie"
+            ],
+            "cableIds": [
+              "power"
+            ],
+            "instruction": "В PCIE",
+            "substeps": [],
+            "warning": null,
+            "requires": []
+          },
+          {
+            "id": "boot",
+            "phaseId": "wiring",
+            "title": "Запуск",
+            "connectorIds": [],
+            "cableIds": [],
+            "instruction": "Включить",
+            "substeps": [],
+            "warning": null,
+            "requires": [
+              "ram",
+              "hdd-1",
+              "gpu"
+            ]
+          }
+        ],
+        "cables": {}
+      }
+    },
+    {
+      "name": "requires: шаг, отсеянный по when, выпадает из условия",
+      "answers": {
+        "gpu": "no"
+      },
+      "expected": {
+        "steps": [
+          {
+            "id": "ram",
+            "phaseId": "bench",
+            "title": "Память",
+            "connectorIds": [
+              "dimm-a",
+              "dimm-b"
+            ],
+            "cableIds": [],
+            "instruction": "Два модуля",
+            "substeps": [
+              "Открыть защёлки"
+            ],
+            "warning": "Одинаковые модули",
+            "requires": []
+          },
+          {
+            "id": "boot",
+            "phaseId": "wiring",
+            "title": "Запуск",
+            "connectorIds": [],
+            "cableIds": [],
+            "instruction": "Включить",
+            "substeps": [],
+            "warning": null,
+            "requires": [
+              "ram"
+            ]
+          }
+        ],
+        "cables": {}
       }
     }
   ]

@@ -239,6 +239,7 @@
     {
       "id": "cooler",
       "phaseId": "bench",
+      "requires": ["cpu"],
       "title": "Установить кулер",
       "icons": { "ios": "fan" },
       "connectorIds": ["cpu-cooler-mount"],
@@ -255,6 +256,7 @@
     {
       "id": "cpu-fan",
       "phaseId": "bench",
+      "requires": ["cooler"],
       "title": "Подключить вентилятор кулера",
       "icons": { "ios": "fan" },
       "connectorIds": ["cpu-fan"],
@@ -306,6 +308,7 @@
     {
       "id": "board-mount",
       "phaseId": "case",
+      "requires": ["io-shield"],
       "title": "Установить плату в корпус",
       "icons": { "ios": "wrench.and.screwdriver" },
       "instruction": "Плата ставится на стойки в корпусе. Стойки должны стоять ровно под отверстиями платы.",
@@ -454,6 +457,7 @@
     {
       "id": "gpu",
       "phaseId": "wiring",
+      "requires": ["board-mount"],
       "title": "Установить видеокарту",
       "icons": { "ios": "display" },
       "when": { "gpu": ["yes"] },
@@ -472,6 +476,7 @@
     {
       "id": "display-igpu",
       "phaseId": "wiring",
+      "requires": ["board-mount"],
       "title": "Подключить монитор к плате",
       "icons": { "ios": "display" },
       "when": { "gpu": ["no"] },
@@ -482,6 +487,7 @@
     {
       "id": "first-boot",
       "phaseId": "finish",
+      "requires": ["cpu", "ram", "cooler", "cpu-fan", "psu", "board-mount", "atx", "cpu-power", "f-panel", "gpu", "display-igpu"],
       "title": "Первый запуск и проверка в BIOS",
       "icons": { "ios": "checkmark.seal" },
       "instruction": "Перед включением ещё раз проверьте питание платы и процессора, кабели накопителей и видеокарты.",

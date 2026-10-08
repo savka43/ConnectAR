@@ -21,15 +21,19 @@ export function normalizeAnswers(board, answers = {}) {
 export const matches = (when, answers) => !when || Object.entries(when).every(([q, ids]) => ids.includes(answers[q]));
 
 /**
- * @returns {Array<{id, stepId, phaseId, title, icons, connectorIds, cableIds, instruction, substeps, warning, manualPage}>}
+ * @returns {Array<{id, stepId, phaseId, title, icons, connectorIds, cableIds, instruction, substeps, warning, manualPage, requires}>}
  */
 export function resolvePlan(board, rawAnswers) {
   const answers = normalizeAnswers(board, rawAnswers);
   const names = new Map(board.connectors.map((c) => [c.id, c.name]));
   const cursors = new Map();
+  const planIds = new Map(); // id шага → id его экземпляров в плане
   const plan = [];
   for (const step of board.steps) {
     if (!matches(step.when, answers)) continue;
+    // requires ссылается только на шаги выше, поэтому их экземпляры уже известны.
+    const requires = (step.requires ?? []).flatMap((id) => planIds.get(id) ?? []);
+    planIds.set(step.id, []);
     const variant = step.variants?.find((v) => matches(v.when, answers)) ?? {};
     const fields = Object.fromEntries(STEP_FIELDS.map((k) => [k, variant[k] ?? step[k]]));
     const count = step.repeat ? Number(answers[step.repeat]) : 1;
@@ -46,8 +50,10 @@ export function resolvePlan(board, rawAnswers) {
         }
       }
       const fill = (s) => s.replaceAll("{n}", String(n)).replaceAll("{port}", port);
+      const id = step.repeat ? `${step.id}-${n}` : step.id;
+      planIds.get(step.id).push(id);
       plan.push({
-        id: step.repeat ? `${step.id}-${n}` : step.id,
+        id,
         stepId: step.id,
         phaseId: step.phaseId,
         title: fill(fields.title),
@@ -58,10 +64,41 @@ export function resolvePlan(board, rawAnswers) {
         substeps: (fields.substeps ?? []).map(fill),
         warning: fields.warning ? fill(fields.warning) : null,
         manualPage: step.manualPage ?? null,
+        requires,
       });
     }
   }
   return plan;
+}
+
+/** Невыполненные шаги из requires — пока они есть, шаг заблокирован. */
+export function unmetRequires(step, done) {
+  return (step.requires ?? []).filter((id) => !done.has(id));
+}
+
+/**
+ * Отмеченные шаги плана, которые зависят от stepId напрямую или через другие шаги, в порядке плана.
+ * Их отметки снимаются вместе с отметкой stepId.
+ */
+export function doneDependents(plan, done, stepId) {
+  const affected = new Set([stepId]);
+  const result = [];
+  for (const step of plan) {
+    // requires указывает только на шаги выше, поэтому одного прохода по плану достаточно.
+    if (step.id === stepId || !(step.requires ?? []).some((id) => affected.has(id))) continue;
+    affected.add(step.id);
+    if (done.has(step.id)) result.push(step);
+  }
+  return result;
+}
+
+/** Подпись заблокированного шага: «Сначала: A, B и ещё 3»; до трёх шагов перечисляются все. */
+export function requiresHint(plan, step, done, limit = 2) {
+  const titles = new Map(plan.map((s) => [s.id, s.title]));
+  const names = unmetRequires(step, done).map((id) => titles.get(id)).filter(Boolean);
+  if (names.length === 0) return null;
+  if (names.length <= limit + 1) return `Сначала: ${names.join(", ")}`;
+  return `Сначала: ${names.slice(0, limit).join(", ")} и ещё ${names.length - limit}`;
 }
 
 /** Кабель с учётом ответов (тип БП): psuSide и warning из первого подходящего варианта. */

@@ -1,6 +1,6 @@
 import { CameraTab } from "./camera.js";
 import { stepStates } from "./markers.js";
-import { answersSummary, resolveCable } from "./plan.js";
+import { answersSummary, doneDependents, requiresHint, resolveCable } from "./plan.js";
 import { createSession } from "./session.js";
 
 // В GitHub Pages данные лежат рядом (./shared_boards), при локальном запуске из корня репозитория — уровнем выше.
@@ -95,12 +95,19 @@ function renderSteps() {
     const items = steps.map((step) => {
       const item = template.content.firstElementChild.cloneNode(true);
       const checkbox = item.querySelector("input");
-      item.className = states.get(step.id);
+      const state = states.get(step.id);
+      item.className = state;
       item.querySelector(".title").textContent = step.title;
-      item.querySelector(".connector").textContent = connectorNames(step) || "Без разметки на плате";
+      item.querySelector(".connector").textContent = state === "locked"
+        ? requiresHint(plan, step, done)
+        : connectorNames(step) || "Без разметки на плате";
       checkbox.checked = done.has(step.id);
+      checkbox.disabled = state === "locked";
       checkbox.setAttribute("aria-label", step.title);
-      checkbox.addEventListener("change", () => session.setStepDone(step.id, checkbox.checked));
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) session.setStepDone(step.id, true);
+        else uncheckStep(step);
+      });
       item.querySelector(".open").addEventListener("click", () => openStep(step));
       return item;
     });
@@ -119,6 +126,27 @@ function renderAssembly() {
   renderSetup();
   renderSteps();
 }
+
+/** Снятие отметки: если от шага зависят отмеченные шаги, сначала подтверждение со списком. */
+function uncheckStep(step) {
+  const dependents = doneDependents(session.plan, session.done, step.id);
+  if (dependents.length === 0) {
+    session.setStepDone(step.id, false);
+    return;
+  }
+  const dialog = $("uncheck-dialog");
+  $("uncheck-title").textContent = `Снять отметку с «${step.title}»?`;
+  $("uncheck-list").replaceChildren(...dependents.map((s) => el("li", {}, s.title)));
+  dialog.returnValue = "";
+  dialog.onclose = () => {
+    if (dialog.returnValue === "confirm") session.setStepDone(step.id, false);
+    else renderAssembly(); // вернуть галочку, снятую кликом
+  };
+  dialog.showModal();
+}
+
+$("uncheck-confirm").addEventListener("click", () => $("uncheck-dialog").close("confirm"));
+$("uncheck-cancel").addEventListener("click", () => $("uncheck-dialog").close());
 
 // ——— Экран инструкции ———
 
@@ -169,14 +197,19 @@ function renderDialog() {
     manual.href = `${board.manualURL}#page=${step.manualPage}`;
     manual.textContent = `Руководство, стр. ${step.manualPage}`;
   }
+  const locked = state === "locked";
+  $("dialog-locked").textContent = locked ? requiresHint(session.plan, step, session.done) : "";
+  $("dialog-locked").hidden = !locked;
   $("dialog-toggle").textContent = done ? "Снять отметку" : "Отметить выполненным";
   $("dialog-toggle").classList.toggle("primary", !done);
+  $("dialog-toggle").disabled = locked;
 }
 
 $("dialog-toggle").addEventListener("click", () => {
-  const done = !session.done.has(dialogStepId);
-  session.setStepDone(dialogStepId, done);
-  if (done) $("step-dialog").close();
+  const step = session.plan.find((s) => s.id === dialogStepId);
+  if (!step) return;
+  if (session.done.has(step.id)) uncheckStep(step);
+  else if (session.setStepDone(step.id, true)) $("step-dialog").close();
 });
 $("dialog-close").addEventListener("click", () => $("step-dialog").close());
 

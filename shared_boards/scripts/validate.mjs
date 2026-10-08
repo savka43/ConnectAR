@@ -113,9 +113,13 @@ export function resolvePlan(board, rawAnswers) {
   const answers = normalizeAnswers(board, rawAnswers);
   const names = new Map(board.connectors.map((c) => [c.id, c.name]));
   const cursors = new Map();
+  const planIds = new Map(); // id шага → id его экземпляров в плане
   const plan = [];
   for (const step of board.steps) {
     if (!matches(step.when, answers)) continue;
+    // requires ссылается только на шаги выше, поэтому их экземпляры уже известны.
+    const requires = (step.requires ?? []).flatMap((id) => planIds.get(id) ?? []);
+    planIds.set(step.id, []);
     const variant = step.variants?.find((v) => matches(v.when, answers)) ?? {};
     const fields = Object.fromEntries(STEP_FIELDS.map((k) => [k, variant[k] ?? step[k]]));
     const count = step.repeat ? Number(answers[step.repeat]) : 1;
@@ -132,8 +136,10 @@ export function resolvePlan(board, rawAnswers) {
         }
       }
       const fill = (s) => s.replaceAll("{n}", String(n)).replaceAll("{port}", port);
+      const id = step.repeat ? `${step.id}-${n}` : step.id;
+      planIds.get(step.id).push(id);
       plan.push({
-        id: step.repeat ? `${step.id}-${n}` : step.id,
+        id,
         stepId: step.id,
         phaseId: step.phaseId,
         title: fill(fields.title),
@@ -144,6 +150,7 @@ export function resolvePlan(board, rawAnswers) {
         substeps: (fields.substeps ?? []).map(fill),
         warning: fields.warning ? fill(fields.warning) : null,
         manualPage: step.manualPage ?? null,
+        requires,
       });
     }
   }
@@ -284,6 +291,11 @@ function checkBoard(file, board, boardId) {
     if (s.manualPage !== undefined && (!Number.isInteger(s.manualPage) || s.manualPage < 1)) fail(at, "manualPage должен быть целым ≥ 1");
     checkWhen(at, s.when, questions);
     checkStepFields(at, s, ctx);
+    for (const id of s.requires ?? []) {
+      if (id === s.id) fail(at, "requires ссылается на сам шаг");
+      else if (!stepIds.has(id)) fail(at, `requires ссылается на неизвестный шаг "${id}"`);
+      else if (board.steps.findIndex((x) => x.id === id) > i) fail(at, `шаг "${id}" из requires должен стоять раньше`);
+    }
 
     let maxCount = 1;
     if (s.repeat !== undefined) {
@@ -376,7 +388,7 @@ const checkPlanFixtures = (file) => {
     const at = `${file} cases[${i}] (${c.name})`;
     const plan = resolvePlan(board, c.answers).map((s) => ({
       id: s.id, phaseId: s.phaseId, title: s.title, connectorIds: s.connectorIds, cableIds: s.cableIds,
-      instruction: s.instruction, substeps: s.substeps, warning: s.warning,
+      instruction: s.instruction, substeps: s.substeps, warning: s.warning, requires: s.requires,
     }));
     if (!same(plan, c.expected?.steps)) fail(at, `steps: получено ${JSON.stringify(plan)}`);
     for (const [cableId, want] of Object.entries(c.expected?.cables ?? {})) {

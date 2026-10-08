@@ -193,6 +193,7 @@
           "substeps": { "type": "array", "items": { "$ref": "#/$defs/text" } },
           "warning": { "$ref": "#/$defs/text" },
           "manualPage": { "type": "integer", "minimum": 1 },
+          "requires": { "description": "Шаги, которые выполняются раньше этого (id шагов выше по списку). В плане раскрываются в id повторов; шаги вне плана пропускаются.", "$ref": "#/$defs/ids" },
           "variants": {
             "type": "array",
             "items": {

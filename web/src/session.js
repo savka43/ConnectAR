@@ -1,5 +1,5 @@
 // Сессия сборки: ответы опроса «Ваша сборка», план и выполненные шаги; хранятся в localStorage по плате.
-import { normalizeAnswers, resolvePlan } from "./plan.js";
+import { doneDependents, normalizeAnswers, resolvePlan, unmetRequires } from "./plan.js";
 
 const progressKey = (boardId) => `connectar.progress.${boardId}`;
 const setupKey = (boardId) => `connectar.setup.${boardId}`;
@@ -63,10 +63,22 @@ export function createSession(board, storage = defaultStorage()) {
       saveAnswers();
       changed();
     },
+    /**
+     * Отметка шага. Заблокированный шаг (не выполнено что-то из requires) не отмечается — вернёт false.
+     * Снятие отметки снимает и отмеченные зависимые шаги (doneDependents) — одной записью и одним уведомлением.
+     */
     setStepDone(id, isDone) {
-      isDone ? done.add(id) : done.delete(id);
+      if (isDone) {
+        const step = plan.find((s) => s.id === id);
+        if (step && unmetRequires(step, done).length) return false;
+        done.add(id);
+      } else {
+        for (const step of doneDependents(plan, done, id)) done.delete(step.id);
+        done.delete(id);
+      }
       write(storage, progressKey(board.id), [...done]);
       changed();
+      return true;
     },
     reset() {
       done.clear();
