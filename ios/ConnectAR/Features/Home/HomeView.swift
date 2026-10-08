@@ -7,10 +7,8 @@ struct HomeView: View {
     var body: some View {
         List {
             Section {
-                Label("Собери ПК шаг за шагом", systemImage: "cpu")
-                    .font(.title2.bold()).padding(.vertical, 12)
-                Text("Выберите компонент, изучите разъём и отметьте выполненный шаг.")
-                    .foregroundStyle(.secondary)
+                Label("Собери ПК шаг за шагом", systemImage: "cpu").font(.title2.bold())
+                Text(session.board.name).foregroundStyle(.secondary)
             }
             Section("Продолжить сборку") {
                 if let step = session.nextStep {
@@ -18,28 +16,19 @@ struct HomeView: View {
                         Label {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(step.title).font(.headline)
-                                Text(step.connector.name).foregroundStyle(.secondary)
+                                Text(session.connectorSummary(for: step)).font(.subheadline).foregroundStyle(.secondary)
                             }
-                        } icon: { Image(systemName: step.connector.component.symbol) }
+                        } icon: { Image(systemName: step.symbol) }
                     }
-                } else if session.steps.isEmpty {
-                    NavigationLink("Выберите компоненты для начала") { BuildConfigurationView() }
                 } else {
-                    Label("Все выбранные шаги выполнены", systemImage: "checkmark.seal.fill")
-                        .foregroundStyle(.teal)
-                    Button("Посмотреть результат") { selection = .checklist }
+                    Label("Все шаги выполнены", systemImage: "checkmark.seal.fill").foregroundStyle(.teal)
                 }
             }
-            Section("Плата прототипа") {
-                Text(session.board.name).font(.headline)
-                Text("Сценарий подключения компонентов")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                Text("Перед подключением компонентов отключите ПК от электросети. Процессор и охлаждение в этом сценарии уже установлены.")
-            }
             Section("Моя сборка") {
-                NavigationLink("Выбрать компоненты") { BuildConfigurationView() }
+                Text(session.summary).font(.subheadline)
+                NavigationLink("Изменить сборку") { SetupView() }
                 ProgressView(value: session.progress)
-                Text("Выполнено: \(session.completedSteps.count) из \(session.steps.count)")
+                Text("Выполнено \(session.completedCount) из \(session.steps.count)")
                 Button("Открыть чек-лист", systemImage: "checklist") { selection = .checklist }
                 Button("Посмотреть подсказки", systemImage: "lightbulb") { selection = .instructions }
                 Button("Открыть камеру", systemImage: "camera") { selection = .camera }

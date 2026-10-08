@@ -15,7 +15,7 @@ struct CameraView: View {
     @State private var markers: [String: CGPoint] = [:]
 
     private var selectedStep: AssemblyStep? {
-        session.board.steps.first { $0.id == selectedStepID }
+        session.steps.first { $0.id == selectedStepID }
     }
 
     var body: some View {
@@ -57,12 +57,12 @@ struct CameraView: View {
                         }
                         .accessibilityLabel("Фото платы. Ручная отметка разъёма")
                     Picker("Компонент", selection: $selectedStepID) {
-                        ForEach(session.board.steps) { step in
-                            Text(step.connector.component.name).tag(step.id)
+                        ForEach(session.steps) { step in
+                            Text(step.title).tag(step.id)
                         }
                     }
                     if let step = selectedStep {
-                        Text("Разъём: \(step.connector.name)").font(.headline)
+                        Text("Разъём: \(session.connectorSummary(for: step))").font(.headline)
                         Text(step.instruction)
                         NavigationLink("Открыть инструкцию") { InstructionDetailView(step: step) }
                     }
@@ -82,8 +82,8 @@ struct CameraView: View {
                 }
             }
             Section("Ручной выбор") {
-                ForEach(session.board.steps) { step in
-                    NavigationLink(step.connector.component.name) { InstructionDetailView(step: step) }
+                ForEach(session.steps) { step in
+                    NavigationLink(step.title) { InstructionDetailView(step: step) }
                 }
             }
             Section {

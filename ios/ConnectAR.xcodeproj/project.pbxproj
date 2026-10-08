@@ -6,7 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+        CA0000000000000000000001 /* shared_boards in Resources */ = {isa = PBXBuildFile; fileRef = CA0000000000000000000002 /* shared_boards */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
+        CA0000000000000000000002 /* shared_boards */ = {isa = PBXFileReference; lastKnownFileType = folder; name = shared_boards; path = ../shared_boards; sourceTree = "<group>"; };
 		38E0EE4E30736E5F0045FA05 /* ConnectAR.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ConnectAR.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -46,6 +51,7 @@
 			isa = PBXGroup;
 			children = (
 				38E0EE5030736E5F0045FA05 /* ConnectAR */,
+                CA0000000000000000000002 /* shared_boards */,
 				38E0EE4F30736E5F0045FA05 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -122,6 +128,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                CA0000000000000000000001 /* shared_boards in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
