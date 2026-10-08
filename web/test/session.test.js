@@ -13,6 +13,7 @@ const board = {
     { id: "ram", phaseId: "p", title: "RAM", instruction: "i", connectorIds: ["a", "b"],
       variants: [{ when: { ram: ["1"] }, connectorIds: ["b"] }] },
     { id: "gpu", phaseId: "p", title: "GPU", instruction: "i", when: { gpu: ["yes"] }, connectorIds: ["pcie"] },
+    { id: "boot", phaseId: "p", title: "Запуск", instruction: "i", requires: ["ram", "gpu"] },
   ],
 };
 
@@ -26,14 +27,14 @@ describe("сессия сборки", () => {
     const s = createSession(board, memoryStorage());
     expect(s.configured).toBe(false);
     expect(s.answers).toEqual({ ram: "2", gpu: "yes" });
-    expect(s.plan.map((p) => p.id)).toEqual(["ram", "gpu"]);
+    expect(s.plan.map((p) => p.id)).toEqual(["ram", "gpu", "boot"]);
   });
 
   it("ответ сразу перестраивает план", () => {
     const s = createSession(board, memoryStorage());
     s.setAnswer("gpu", "no");
     s.setAnswer("ram", "1");
-    expect(s.plan.map((p) => [p.id, p.connectorIds])).toEqual([["ram", ["b"]]]);
+    expect(s.plan.map((p) => [p.id, p.connectorIds])).toEqual([["ram", ["b"]], ["boot", []]]);
   });
 
   it("ответы сохраняются после прохождения опроса, прогресс — сразу", () => {
@@ -69,6 +70,30 @@ describe("сессия сборки", () => {
     unsubscribe();
     s.setStepDone("gpu", true);
     expect(calls).toBe(3);
+  });
+
+  it("заблокированный шаг не отмечается", () => {
+    const s = createSession(board, memoryStorage());
+    expect(s.setStepDone("boot", true)).toBe(false);
+    expect(s.done.has("boot")).toBe(false);
+    s.setStepDone("ram", true);
+    s.setStepDone("gpu", true);
+    expect(s.setStepDone("boot", true)).toBe(true);
+  });
+
+  it("снятие отметки снимает зависимых одной операцией: одно уведомление, одна запись", () => {
+    const storage = memoryStorage();
+    const s = createSession(board, storage);
+    ["ram", "gpu", "boot"].forEach((id) => s.setStepDone(id, true));
+    let calls = 0;
+    let writes = 0;
+    const setItem = storage.setItem;
+    storage.setItem = (k, v) => { writes++; setItem(k, v); };
+    s.subscribe(() => calls++);
+    s.setStepDone("ram", false);
+    expect([...s.done]).toEqual(["gpu"]);
+    expect(calls).toBe(1);
+    expect(writes).toBe(1);
   });
 
   it("работает без хранилища", () => {
