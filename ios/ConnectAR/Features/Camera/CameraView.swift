@@ -11,18 +11,17 @@ struct CameraView: View {
     @State private var loading = false
     @State private var errorMessage: String?
     @State private var needsSettings = false
-    @State private var selectedStepID = "ram"
-    @State private var markers: [String: CGPoint] = [:]
-
-    private var selectedStep: AssemblyStep? {
-        session.steps.first { $0.id == selectedStepID }
-    }
+    @State private var photoID = UUID()
+    @State private var photoCorners: [BoardPoint] = []
+    @State private var editingCorners = true
+    @State private var photoZoom = 1.0
+    @State private var selectedStepID: String?
 
     var body: some View {
         List {
             Section {
                 Text(session.board.name).font(.headline)
-                Text("Сфотографируйте плату, выберите компонент и коснитесь его разъёма на фото. Метки ставятся вручную.")
+                Text("Сфотографируйте плату и отметьте четыре её угла. Разъёмы вашего плана появятся на фото.")
                     .foregroundStyle(.secondary)
                 HStack {
                     Button("Снять фото", systemImage: "camera") { Task { await openCamera() } }
@@ -35,43 +34,11 @@ struct CameraView: View {
             }
             if let image {
                 Section("Фото платы") {
-                    Image(uiImage: image)
-                        .resizable().aspectRatio(contentMode: .fit)
-                        .overlay {
-                            GeometryReader { geometry in
-                                Color.clear.contentShape(Rectangle())
-                                    .onTapGesture { location in
-                                        guard geometry.size.width > 0, geometry.size.height > 0 else { return }
-                                        markers[selectedStepID] = CGPoint(
-                                            x: min(1, max(0, location.x / geometry.size.width)),
-                                            y: min(1, max(0, location.y / geometry.size.height)))
-                                    }
-                                if let point = markers[selectedStepID] {
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.system(size: 32)).foregroundStyle(.white, .teal)
-                                        .shadow(radius: 3)
-                                        .position(x: point.x * geometry.size.width, y: point.y * geometry.size.height)
-                                        .allowsHitTesting(false)
-                                }
-                            }
-                        }
-                        .accessibilityLabel("Фото платы. Ручная отметка разъёма")
-                    Picker("Компонент", selection: $selectedStepID) {
-                        ForEach(session.steps) { step in
-                            Text(step.title).tag(step.id)
-                        }
-                    }
-                    if let step = selectedStep {
-                        Text("Разъём: \(session.connectorSummary(for: step))").font(.headline)
-                        Text(step.instruction)
-                        NavigationLink("Открыть инструкцию") { InstructionDetailView(step: step) }
-                    }
-                    if markers[selectedStepID] != nil {
-                        Button("Убрать метку") { markers.removeValue(forKey: selectedStepID) }
-                    }
+                    BoardPhotoView(image: image, corners: $photoCorners, editing: $editingCorners,
+                                   zoom: $photoZoom, selectedStepID: $selectedStepID).id(photoID)
                     Button("Убрать фото", role: .destructive) {
                         self.image = nil
-                        markers.removeAll()
+                        photoID = UUID()
                         photoItem = nil
                     }
                 }
@@ -92,6 +59,9 @@ struct CameraView: View {
             }
         }
         .navigationTitle("Камера")
+        .navigationDestination(item: $selectedStepID) { id in
+            if let step = session.steps.first(where: { $0.id == id }) { InstructionDetailView(step: step) }
+        }
         .fullScreenCover(isPresented: $showingCamera) {
             CameraCapture { replaceImage($0) }.ignoresSafeArea()
         }
@@ -131,7 +101,14 @@ struct CameraView: View {
 
     private func replaceImage(_ newImage: UIImage) {
         image = newImage
-        markers.removeAll()
+        // Consume the picker request: .task restarts when returning from a pushed
+        // instruction, and must not reload the same image and clear its corners.
+        photoItem = nil
+        photoID = UUID()
+        photoCorners = []
+        editingCorners = true
+        photoZoom = 1
+        selectedStepID = nil
     }
 
     private func openCamera() async {

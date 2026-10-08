@@ -109,6 +109,7 @@ struct AssemblySessionTests {
         let corrupt = AssemblySession(board: board, defaults: defaults)
         check(!corrupt.configured && corrupt.completedSteps.isEmpty, "Corrupt v2 does not import obsolete v1")
         do { _ = try BoardRepository.load(root: root, id: "missing"); fatalError("Missing board must throw") } catch {}
+        try BoardGeometryTests.run(root: root)
         print("PASS: \(fixtures.cases.count) shared plan fixtures, real board, setup, dependencies, atomic storage, migration and notes")
     }
 }

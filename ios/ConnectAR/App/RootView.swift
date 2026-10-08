@@ -56,6 +56,9 @@ private struct AssemblyRootView: View {
         .sheet(isPresented: $showingSetup) {
             NavigationStack { SetupView() }.interactiveDismissDisabled(!session.configured)
         }
+        .onChange(of: session.configured) { _, configured in
+            if configured { selection = .checklist }
+        }
         .tint(.teal)
         .environmentObject(session)
     }
