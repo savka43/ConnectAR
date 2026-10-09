@@ -24,7 +24,7 @@ struct SetupQuestion: Codable, Identifiable {
     enum CodingKeys: String, CodingKey { case id, title, options; case defaultAnswer = "default" }
 }
 struct AssemblyPhase: Codable, Identifiable { let id: String; let title: String }
-struct StepIcons: Codable, Equatable { let ios: String?; let android: String?; let web: String? }
+struct StepIcons: Codable, Equatable { let ios: String?; let web: String? }
 struct StepVariant: Codable {
     let when: AnswerCondition
     let title: String?

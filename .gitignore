@@ -1,2 +1,11 @@
 node_modules/
 shared_boards/boards/*/targets.mind
+
+# macOS
+.DS_Store
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/

@@ -16,7 +16,7 @@ describe.each(fixtures.cases)("BoardLayout: $name", ({ physical, rectMm, expecte
     expectClose([dx, dz], [expected.offsetMm.dx, expected.offsetMm.dz]);
   });
 
-  it("позиция и углы для ARKit / ARCore", () => {
+  it("позиция и углы для ARKit", () => {
     expectClose(nativeAnchorPosition(physical, rectMm), expected.anchorM);
     expectClose(nativeCorners(physical, rectMm), expected.cornersM);
   });

@@ -16,7 +16,7 @@ export function rectCenterOffsetMm(physical, rect) {
   return offsetMm(physical, rect.x + rect.w / 2, rect.y + rect.h / 2);
 }
 
-/** ARKit / ARCore: центр фото, плоскость XZ, метры. */
+/** ARKit: центр фото, плоскость XZ, метры. */
 export function nativeAnchorPosition(physical, rect) {
   const { dx, dz } = rectCenterOffsetMm(physical, rect);
   return [dx / 1000, 0, dz / 1000];

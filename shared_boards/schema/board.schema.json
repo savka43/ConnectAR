@@ -16,12 +16,11 @@
       "additionalProperties": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } }
     },
     "icons": {
-      "description": "Платформенные имена иконок: ios — SF Symbol, android — Material Symbol, web — любой идентификатор.",
+      "description": "Платформенные имена иконок: ios — SF Symbol, web — любой идентификатор.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "ios": { "type": "string" },
-        "android": { "type": "string" },
         "web": { "type": "string" }
       }
     },
