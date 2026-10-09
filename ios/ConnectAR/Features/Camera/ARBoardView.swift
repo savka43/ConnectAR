@@ -10,6 +10,7 @@ private enum ARBoardStatus: Equatable {
 
 private struct ARMarkerProjection: Identifiable {
     let marker: BoardMarker
+    let label: String
     let anchor: BoardPoint
     let center: BoardPoint
     let labelSize: BoardPoint
@@ -39,6 +40,8 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
     private var visibleLabels: [String: PhotoLabel] = [:]
     private var layoutCandidates: [String: (label: PhotoLabel, frames: Int)] = [:]
     private var wasTracking = false
+    private var smoothedImageTransform: simd_float4x4?
+    private var lastPoseTimestamp: TimeInterval = 0
     private var torchWasEnabled = false
     private var torch: AVCaptureDevice? { AVCaptureDevice.default(for: .video) }
 
@@ -80,6 +83,8 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
         wasTracking = false
         visibleLabels.removeAll()
         layoutCandidates.removeAll()
+        smoothedImageTransform = nil
+        lastPoseTimestamp = 0
     }
 
     private func start() {
@@ -168,24 +173,43 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
         let markers = BoardMarkers.make(board: board, plan: assembly.steps, done: assembly.completedSteps)
         for marker in markers {
             let rect = marker.rect
-            let mesh = MeshResource.generatePlane(width: Float(rect.w / 1000), depth: Float(rect.h / 1000))
-            let color: UIColor
+            let edgeColor: UIColor
+            let fillColor: UIColor
             switch marker.state {
-            case .current: color = UIColor.systemTeal.withAlphaComponent(0.72)
-            case .pending: color = UIColor.systemOrange.withAlphaComponent(0.42)
-            case .done: color = UIColor.systemGray.withAlphaComponent(0.22)
+            case .current:
+                edgeColor = .systemYellow
+                fillColor = UIColor.systemYellow.withAlphaComponent(0.14)
+            case .pending:
+                edgeColor = .systemTeal
+                fillColor = UIColor.systemTeal.withAlphaComponent(0.06)
+            case .done:
+                edgeColor = UIColor.systemGray.withAlphaComponent(0.5)
+                fillColor = UIColor.systemGray.withAlphaComponent(0.025)
             }
-            let entity = ModelEntity(mesh: mesh, materials: [UnlitMaterial(color: color)])
-            let position = BoardGeometry.anchor(rect.center, physical: board.physical)
-            entity.position = SIMD3(Float(position[0]), 0.001, Float(position[2]))
-            contentRoot.addChild(entity)
+            addPlane(x: rect.x, y: rect.y, width: rect.w, height: rect.h,
+                     elevation: 0.001, color: fillColor, to: contentRoot)
+            addPlane(x: rect.x, y: rect.y, width: rect.w, height: 1.6,
+                     elevation: 0.002, color: edgeColor, to: contentRoot)
+            addPlane(x: rect.x, y: rect.y + rect.h - 1.6, width: rect.w, height: 1.6,
+                     elevation: 0.002, color: edgeColor, to: contentRoot)
+            addPlane(x: rect.x, y: rect.y, width: 1.6, height: rect.h,
+                     elevation: 0.002, color: edgeColor, to: contentRoot)
+            addPlane(x: rect.x + rect.w - 1.6, y: rect.y, width: 1.6, height: rect.h,
+                     elevation: 0.002, color: edgeColor, to: contentRoot)
         }
+    }
+
+    private func addPlane(x: Double, y: Double, width: Double, height: Double,
+                          elevation: Float, color: UIColor, to parent: Entity) {
+        let mesh = MeshResource.generatePlane(width: Float(width / 1000), depth: Float(height / 1000))
+        let entity = ModelEntity(mesh: mesh, materials: [UnlitMaterial(color: color)])
+        let position = BoardGeometry.anchor(BoardPoint(x: x + width / 2, y: y + height / 2), physical: board.physical)
+        entity.position = SIMD3(Float(position[0]), elevation, Float(position[2]))
+        parent.addChild(entity)
     }
 
     private func updateProjection(frame: ARFrame, imageAnchor: ARImageAnchor?) {
         let now = CACurrentMediaTime()
-        guard now - lastProjection > 0.06 else { return }
-        lastProjection = now
         guard let view, let imageAnchor, imageAnchor.isTracked,
               frame.camera.trackingState == .normal else {
             if anchor != nil { status = .lost }
@@ -193,12 +217,18 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
             projections = []
             wasTracking = false
             layoutCandidates.removeAll()
+            smoothedImageTransform = nil
+            lastPoseTimestamp = 0
             return
         }
         status = .tracking
         overlayRoot?.isEnabled = true
         let correction = Transform(rotation: simd_quatf(angle: -.pi / 2, axis: SIMD3<Float>(1, 0, 0))).matrix
-        let boardToWorld = simd_mul(imageAnchor.transform, correction)
+        let stableImageTransform = smooth(imageAnchor.transform, timestamp: frame.timestamp)
+        let boardToWorld = simd_mul(stableImageTransform, correction)
+        overlayRoot?.transform = Transform(matrix: boardToWorld)
+        guard now - lastProjection > 0.033 else { return }
+        lastProjection = now
         let markers = BoardMarkers.make(board: board, plan: assembly.steps, done: assembly.completedSteps)
         let inputs: [PhotoLabelInput] = markers.filter(\.showLabel).compactMap { marker in
             let point = BoardGeometry.anchor(marker.rect.center, physical: board.physical)
@@ -206,7 +236,8 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
             let world = simd_mul(boardToWorld, local)
             guard let projected = view.project(SIMD3(world.x, world.y, world.z)) else { return nil }
             let font = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: view.traitCollection)
-            let bounds = (marker.label as NSString).boundingRect(with: CGSize(width: 220, height: 1000),
+            let label = displayLabel(for: marker)
+            let bounds = (label as NSString).boundingRect(with: CGSize(width: 260, height: 1000),
                 options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font], context: nil)
             return PhotoLabelInput(id: marker.id,
                 anchor: BoardPoint(x: projected.x, y: projected.y),
@@ -218,12 +249,37 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
         let layout = stabilize(proposed, currentID: currentID, immediately: !wasTracking)
         wasTracking = true
         projections = markers.compactMap { marker in
-            guard marker.showLabel, let label = layout[marker.id], label.visible else { return nil }
+            guard marker.showLabel, let placement = layout[marker.id], placement.visible else { return nil }
             return ARMarkerProjection(marker: marker,
-                anchor: inputs.first(where: { $0.id == marker.id })?.anchor ?? label.center,
-                center: label.center,
+                label: displayLabel(for: marker),
+                anchor: inputs.first(where: { $0.id == marker.id })?.anchor ?? placement.center,
+                center: placement.center,
                 labelSize: inputs.first(where: { $0.id == marker.id })?.size ?? BoardPoint(x: 80, y: 36))
         }
+    }
+
+    private func displayLabel(for marker: BoardMarker) -> String {
+        marker.connectorIDs.contains("cpu-power") ? "ATX_12V · CPU 8-pin" : marker.label
+    }
+
+    private func smooth(_ transform: simd_float4x4, timestamp: TimeInterval) -> simd_float4x4 {
+        guard let previous = smoothedImageTransform else {
+            smoothedImageTransform = transform
+            lastPoseTimestamp = timestamp
+            return transform
+        }
+        let elapsed = max(1.0 / 60.0, min(0.25, timestamp - lastPoseTimestamp))
+        let amount = Float(1 - exp(-elapsed / 0.1))
+        let oldPosition = SIMD3(previous.columns.3.x, previous.columns.3.y, previous.columns.3.z)
+        let newPosition = SIMD3(transform.columns.3.x, transform.columns.3.y, transform.columns.3.z)
+        let rotation = simd_slerp(Transform(matrix: previous).rotation,
+                                  Transform(matrix: transform).rotation, amount)
+        var result = Transform(rotation: rotation).matrix
+        let position = oldPosition + (newPosition - oldPosition) * amount
+        result.columns.3 = SIMD4(position.x, position.y, position.z, 1)
+        smoothedImageTransform = result
+        lastPoseTimestamp = timestamp
+        return result
     }
 
     private func stabilize(_ proposed: [String: PhotoLabel], currentID: String?, immediately: Bool) -> [String: PhotoLabel] {
@@ -264,7 +320,8 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
         let corners = BoardGeometry.corners(board.physical).compactMap { point -> CGPoint? in
             let local = BoardGeometry.anchor(point, physical: board.physical)
             let correction = Transform(rotation: simd_quatf(angle: -.pi / 2, axis: SIMD3<Float>(1, 0, 0))).matrix
-            let world = simd_mul(simd_mul(anchor.transform, correction), SIMD4(Float(local[0]), 0, Float(local[2]), 1))
+            let imageTransform = smoothedImageTransform ?? anchor.transform
+            let world = simd_mul(simd_mul(imageTransform, correction), SIMD4(Float(local[0]), 0, Float(local[2]), 1))
             return view.project(SIMD3(world.x, world.y, world.z))
         }
         guard corners.count == 4 else {
@@ -293,10 +350,10 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
         anchor = image
         guard let view else { return }
         if let old = overlayRoot { view.scene.removeAnchor(old) }
-        let root = AnchorEntity(anchor: image)
+        let root = AnchorEntity(world: .zero)
         let boardRoot = Entity()
         let correction = Transform(rotation: simd_quatf(angle: -.pi / 2, axis: SIMD3<Float>(1, 0, 0))).matrix
-        boardRoot.transform = Transform(matrix: correction)
+        root.transform = Transform(matrix: simd_mul(image.transform, correction))
         root.addChild(boardRoot)
         view.scene.addAnchor(root)
         overlayRoot = root
@@ -316,6 +373,7 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
         if let overlayRoot, let view { view.scene.removeAnchor(overlayRoot) }
         overlayRoot = nil; contentRoot = nil; projections = []; status = .searching
         wasTracking = false; visibleLabels.removeAll(); layoutCandidates.removeAll()
+        smoothedImageTransform = nil; lastPoseTimestamp = 0
     }
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
@@ -323,13 +381,17 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
             lastSearchTick = frame.timestamp
             secondsSearching += 1
         }
-        updateProjection(frame: frame, imageAnchor: anchor)
+        let currentAnchor = frame.anchors.compactMap { $0 as? ARImageAnchor }.first ?? anchor
+        if let currentAnchor { anchor = currentAnchor }
+        updateProjection(frame: frame, imageAnchor: currentAnchor)
     }
 
     func sessionWasInterrupted(_ session: ARSession) {
         status = .lost
         overlayRoot?.isEnabled = false
         projections = []
+        smoothedImageTransform = nil
+        lastPoseTimestamp = 0
     }
 
     func sessionInterruptionEnded(_ session: ARSession) {
@@ -451,14 +513,14 @@ struct ARBoardView: View {
                 ForEach(model.projections) { projection in
                     if let label = layout[projection.marker.id], label.visible {
                         Button { selectedStepID = projection.marker.stepID } label: {
-                            Text(projection.marker.label).font(.caption).multilineTextAlignment(.center)
+                Text(projection.label).font(.caption).multilineTextAlignment(.center)
                                 .padding(.horizontal, 8).padding(.vertical, 6)
                                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                                 .overlay { RoundedRectangle(cornerRadius: 8).stroke(color(projection.marker.state), lineWidth: 2) }
                         }
                         .buttonStyle(.plain)
                         .position(x: label.center.x, y: label.center.y)
-                        .accessibilityLabel(projection.marker.label)
+                        .accessibilityLabel(projection.label)
                         .accessibilityValue(projection.marker.state == .done ? "Выполнено" :
                             (projection.marker.state == .current ? "Текущий шаг" : "Не выполнено"))
                     }
@@ -469,7 +531,7 @@ struct ARBoardView: View {
     }
 
     private func color(_ state: MarkerState) -> Color {
-        switch state { case .current: .teal; case .pending: .orange; case .done: .gray }
+        switch state { case .current: .yellow; case .pending: .teal; case .done: .gray }
     }
 }
 
