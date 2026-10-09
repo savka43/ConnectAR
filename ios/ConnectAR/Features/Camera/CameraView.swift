@@ -5,6 +5,7 @@ import ImageIO
 
 struct CameraView: View {
     @EnvironmentObject private var session: AssemblySession
+    let cameraTabSelected: Bool
     @State private var photoItem: PhotosPickerItem?
     @State private var image: UIImage?
     @State private var showingCamera = false
@@ -16,49 +17,27 @@ struct CameraView: View {
     @State private var editingCorners = true
     @State private var photoZoom = 1.0
     @State private var selectedStepID: String?
+    @State private var mode: CameraMode = .ar
+    @State private var frozenFrame = false
+    @State private var photoBanner: String?
+
+    private enum CameraMode { case ar, photo }
 
     var body: some View {
-        List {
-            Section {
-                Text(session.board.name).font(.headline)
-                Text("Сфотографируйте плату и отметьте четыре её угла. Разъёмы вашего плана появятся на фото.")
-                    .foregroundStyle(.secondary)
-                HStack {
-                    Button("Снять фото", systemImage: "camera") { Task { await openCamera() } }
-                        .buttonStyle(.borderedProminent)
-                    PhotosPicker(selection: $photoItem, matching: .images) {
-                        Label("Из галереи", systemImage: "photo")
-                    }.buttonStyle(.bordered)
-                }.disabled(loading)
-                if loading { ProgressView("Загрузка фотографии…") }
-            }
-            if let image {
-                Section("Фото платы") {
-                    BoardPhotoView(image: image, corners: $photoCorners, editing: $editingCorners,
-                                   zoom: $photoZoom, selectedStepID: $selectedStepID).id(photoID)
-                    Button("Убрать фото", role: .destructive) {
-                        self.image = nil
-                        photoID = UUID()
-                        photoItem = nil
-                    }
-                }
+        Group {
+            if mode == .ar {
+                ARBoardView(board: session.board, assembly: session, selectedStepID: $selectedStepID,
+                            active: cameraTabSelected, onFreeze: showFrozenFrame,
+                            onUsePhoto: { message in
+                                if let message { photoBanner = message }
+                                mode = .photo
+                            })
             } else {
-                Section {
-                    ContentUnavailableView("Добавьте фото платы", systemImage: "viewfinder",
-                        description: Text("Можно снять новое фото или выбрать готовое из галереи."))
-                }
-            }
-            Section("Ручной выбор") {
-                ForEach(session.steps) { step in
-                    NavigationLink(step.title) { InstructionDetailView(step: step) }
-                }
-            }
-            Section {
-                Text("Автоматическое распознавание и AR ещё не подключены. Фото и метки доступны в текущем сеансе и никуда не отправляются.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                photoScreen
             }
         }
-        .navigationTitle("Камера")
+        .navigationTitle(mode == .ar ? "AR сборка" : "Фото платы")
+        .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedStepID) { id in
             if let step = session.steps.first(where: { $0.id == id }) { InstructionDetailView(step: step) }
         }
@@ -87,8 +66,8 @@ struct CameraView: View {
             }
         }
         .alert("Камера и фото", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil; needsSettings = false } }
+            get: { errorMessage != nil || photoBanner != nil },
+            set: { if !$0 { errorMessage = nil; photoBanner = nil; needsSettings = false } }
         )) {
             if needsSettings {
                 Button("Настройки") {
@@ -96,11 +75,54 @@ struct CameraView: View {
                 }
             }
             Button("Понятно", role: .cancel) {}
-        } message: { Text(errorMessage ?? "") }
+        } message: { Text(errorMessage ?? photoBanner ?? "") }
+    }
+
+    private var photoScreen: some View {
+        List {
+            Section {
+                Text(session.board.name).font(.headline)
+                Text("Отметьте четыре угла платы, чтобы увидеть разъёмы из вашего плана.")
+                    .foregroundStyle(.secondary)
+                Button(frozenFrame ? "Вернуться в AR" : "Открыть AR", systemImage: "arkit") { mode = .ar }
+                    .buttonStyle(.borderedProminent)
+                HStack {
+                    Button("Снять фото", systemImage: "camera") { Task { await openCamera() } }
+                        .buttonStyle(.borderedProminent)
+                    PhotosPicker(selection: $photoItem, matching: .images) {
+                        Label("Из галереи", systemImage: "photo")
+                    }.buttonStyle(.bordered)
+                }.disabled(loading)
+                if loading { ProgressView("Загрузка фотографии…") }
+            }
+            if let image {
+                Section("Фото платы") {
+                    BoardPhotoView(image: image, corners: $photoCorners, editing: $editingCorners,
+                                   zoom: $photoZoom, selectedStepID: $selectedStepID).id(photoID)
+                    Button("Убрать фото", role: .destructive) {
+                        self.image = nil
+                        frozenFrame = false
+                        photoID = UUID()
+                        photoItem = nil
+                    }
+                }
+            } else {
+                Section {
+                    ContentUnavailableView("Добавьте фото платы", systemImage: "viewfinder",
+                        description: Text("Можно снять новое фото или выбрать готовое из галереи."))
+                }
+            }
+            Section("Ручной выбор") {
+                ForEach(session.steps) { step in
+                    NavigationLink(step.title) { InstructionDetailView(step: step) }
+                }
+            }
+        }
     }
 
     private func replaceImage(_ newImage: UIImage) {
         image = newImage
+        frozenFrame = false
         // Consume the picker request: .task restarts when returning from a pushed
         // instruction, and must not reload the same image and clear its corners.
         photoItem = nil
@@ -109,6 +131,18 @@ struct CameraView: View {
         editingCorners = true
         photoZoom = 1
         selectedStepID = nil
+    }
+
+    private func showFrozenFrame(_ frame: UIImage, _ corners: [BoardPoint]) {
+        image = frame
+        photoItem = nil
+        photoID = UUID()
+        photoCorners = corners
+        editingCorners = false
+        photoZoom = 1
+        selectedStepID = nil
+        frozenFrame = true
+        mode = .photo
     }
 
     private func openCamera() async {

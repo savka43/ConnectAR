@@ -46,7 +46,7 @@ private struct AssemblyRootView: View {
         TabView(selection: $selection) {
             NavigationStack { HomeView(selection: $selection) }
                 .tabItem { Label("Главная", systemImage: "house") }.tag(AppTab.home)
-            NavigationStack { CameraView() }
+            NavigationStack { CameraView(cameraTabSelected: selection == .camera) }
                 .tabItem { Label("Камера", systemImage: "camera") }.tag(AppTab.camera)
             NavigationStack { InstructionsView() }
                 .tabItem { Label("Подсказки", systemImage: "lightbulb") }.tag(AppTab.instructions)
