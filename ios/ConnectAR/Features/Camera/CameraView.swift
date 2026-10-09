@@ -10,6 +10,7 @@ struct CameraView: View {
     @State private var image: UIImage?
     @State private var showingCamera = false
     @State private var loading = false
+    @State private var recognizingPhoto = false
     @State private var errorMessage: String?
     @State private var needsSettings = false
     @State private var photoID = UUID()
@@ -25,15 +26,17 @@ struct CameraView: View {
 
     var body: some View {
         Group {
-            if mode == .ar {
+            ZStack {
                 ARBoardView(board: session.board, assembly: session, selectedStepID: $selectedStepID,
-                            active: cameraTabSelected, onFreeze: showFrozenFrame,
-                            onUsePhoto: { message in
+                            active: cameraTabSelected && mode == .ar, onFreeze: showFrozenFrame,
+                            onUsePhoto: { message, settings in
                                 if let message { photoBanner = message }
+                                needsSettings = settings
                                 mode = .photo
                             })
-            } else {
-                photoScreen
+                    .opacity(mode == .ar ? 1 : 0)
+                    .allowsHitTesting(mode == .ar)
+                if mode == .photo { photoScreen }
             }
         }
         .navigationTitle(mode == .ar ? "AR сборка" : "Фото платы")
@@ -82,9 +85,13 @@ struct CameraView: View {
         List {
             Section {
                 Text(session.board.name).font(.headline)
-                Text("Отметьте четыре угла платы, чтобы увидеть разъёмы из вашего плана.")
+                Text("Приложение найдёт плату на фото автоматически. Если не получится, отметьте четыре угла вручную.")
                     .foregroundStyle(.secondary)
-                Button(frozenFrame ? "Вернуться в AR" : "Открыть AR", systemImage: "arkit") { mode = .ar }
+                Button(frozenFrame ? "Вернуться в AR" : "Открыть AR", systemImage: "arkit") {
+                    photoBanner = nil
+                    needsSettings = false
+                    mode = .ar
+                }
                     .buttonStyle(.borderedProminent)
                 HStack {
                     Button("Снять фото", systemImage: "camera") { Task { await openCamera() } }
@@ -94,14 +101,17 @@ struct CameraView: View {
                     }.buttonStyle(.bordered)
                 }.disabled(loading)
                 if loading { ProgressView("Загрузка фотографии…") }
+                if recognizingPhoto { ProgressView("Ищем плату на фото…") }
             }
             if let image {
                 Section("Фото платы") {
                     BoardPhotoView(image: image, corners: $photoCorners, editing: $editingCorners,
                                    zoom: $photoZoom, selectedStepID: $selectedStepID).id(photoID)
+                        .disabled(recognizingPhoto)
                     Button("Убрать фото", role: .destructive) {
                         self.image = nil
                         frozenFrame = false
+                        recognizingPhoto = false
                         photoID = UUID()
                         photoItem = nil
                     }
@@ -131,6 +141,29 @@ struct CameraView: View {
         editingCorners = true
         photoZoom = 1
         selectedStepID = nil
+        photoBanner = nil
+        needsSettings = false
+
+        let requestID = photoID
+        let physical = session.board.physical
+        let targetURL = Bundle.main.resourceURL?.appendingPathComponent(
+            "shared_boards/boards/\(session.board.id)/\(session.board.target?.image ?? "")")
+        let target = targetURL.flatMap { UIImage(contentsOfFile: $0.path) }
+        recognizingPhoto = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let detected = BoardPhotoRecognition.corners(in: newImage, target: target, physical: physical)
+            DispatchQueue.main.async {
+                guard photoID == requestID else { return }
+                recognizingPhoto = false
+                if let detected {
+                    photoCorners = detected
+                    editingCorners = false
+                } else {
+                    editingCorners = true
+                    photoBanner = "Плату на фото не нашли — отметьте четыре угла вручную."
+                }
+            }
+        }
     }
 
     private func showFrozenFrame(_ frame: UIImage, _ corners: [BoardPoint]) {

@@ -10,6 +10,7 @@ private enum ARBoardStatus: Equatable {
 
 private struct ARMarkerProjection: Identifiable {
     let marker: BoardMarker
+    let anchor: BoardPoint
     let center: BoardPoint
     let labelSize: BoardPoint
     var id: String { marker.id }
@@ -21,6 +22,7 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
     @Published var projections: [ARMarkerProjection] = []
     @Published var secondsSearching = 0
     @Published var error: String?
+    @Published var notice: String?
     @Published var torchEnabled = false
 
     let board: Motherboard
@@ -34,6 +36,9 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
     private var configured = false
     private var lastProjection = 0.0
     private var lastSearchTick = 0.0
+    private var visibleLabels: [String: PhotoLabel] = [:]
+    private var layoutCandidates: [String: (label: PhotoLabel, frames: Int)] = [:]
+    private var wasTracking = false
     private var torchWasEnabled = false
     private var torch: AVCaptureDevice? { AVCaptureDevice.default(for: .video) }
 
@@ -68,13 +73,18 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
         torchWasEnabled = torchEnabled || torchWasEnabled
         setTorch(false)
         view?.session.pause()
+        overlayRoot?.isEnabled = false
         status = .searching
         projections = []
         secondsSearching = 0
+        wasTracking = false
+        visibleLabels.removeAll()
+        layoutCandidates.removeAll()
     }
 
     private func start() {
         guard active, let view else { return }
+        error = nil
         guard ARWorldTrackingConfiguration.isSupported else {
             fail("На этом устройстве AR недоступна. Можно продолжить с фотографией платы.")
             return
@@ -84,7 +94,7 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
                 Task { @MainActor [weak self] in
                     guard let self, self.active else { return }
                     if granted { self.start() }
-                    else { self.fail("Разрешите доступ к камере в настройках или продолжите с фотографией платы.") }
+                    else { self.fail("Разрешите доступ к камере в настройках или продолжите с фотографией платы.", needsSettings: true) }
                 }
             }
             return
@@ -120,17 +130,22 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
         configuration.detectionImages = [reference]
         configuration.maximumNumberOfTrackedImages = 1
         view.session.run(configuration, options: reset ? [.resetTracking, .removeExistingAnchors] : [])
-        status = anchor?.isTracked == true ? .tracking : (anchor == nil ? .searching : .lost)
+        status = .searching
+        overlayRoot?.isEnabled = false
         error = nil
+        needsSettings = false
         if torchWasEnabled { setTorch(true); torchWasEnabled = false }
     }
 
-    private func fail(_ message: String) {
+    private func fail(_ message: String, needsSettings: Bool = false) {
         status = .unavailable
         error = message
+        self.needsSettings = needsSettings
         pause()
         status = .unavailable
     }
+
+    @Published var needsSettings = false
 
     func toggleTorch() {
         guard torch?.hasTorch == true else { return }
@@ -174,20 +189,23 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
         guard let view, let imageAnchor, imageAnchor.isTracked,
               frame.camera.trackingState == .normal else {
             if anchor != nil { status = .lost }
+            overlayRoot?.isEnabled = false
             projections = []
+            wasTracking = false
+            layoutCandidates.removeAll()
             return
         }
         status = .tracking
+        overlayRoot?.isEnabled = true
         let correction = Transform(rotation: simd_quatf(angle: -.pi / 2, axis: SIMD3<Float>(1, 0, 0))).matrix
         let boardToWorld = simd_mul(imageAnchor.transform, correction)
         let markers = BoardMarkers.make(board: board, plan: assembly.steps, done: assembly.completedSteps)
-        let inputs: [PhotoLabelInput] = markers.compactMap { marker in
+        let inputs: [PhotoLabelInput] = markers.filter(\.showLabel).compactMap { marker in
             let point = BoardGeometry.anchor(marker.rect.center, physical: board.physical)
             let local = SIMD4<Float>(Float(point[0]), 0, Float(point[2]), 1)
             let world = simd_mul(boardToWorld, local)
             guard let projected = view.project(SIMD3(world.x, world.y, world.z)) else { return nil }
-            let traits = UITraitCollection(preferredContentSizeCategory: .large)
-            let font = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: traits)
+            let font = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: view.traitCollection)
             let bounds = (marker.label as NSString).boundingRect(with: CGSize(width: 220, height: 1000),
                 options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font], context: nil)
             return PhotoLabelInput(id: marker.id,
@@ -195,12 +213,50 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
                 size: BoardPoint(x: min(240, ceil(bounds.width) + 16), y: ceil(bounds.height) + 12),
                 state: marker.state, order: marker.order)
         }
-        let layout = BoardMarkers.layout(inputs, viewport: BoardPoint(x: view.bounds.width, y: view.bounds.height))
+        let proposed = BoardMarkers.layout(inputs, viewport: BoardPoint(x: view.bounds.width, y: view.bounds.height))
+        let currentID = markers.first(where: { $0.state == .current })?.id
+        let layout = stabilize(proposed, currentID: currentID, immediately: !wasTracking)
+        wasTracking = true
         projections = markers.compactMap { marker in
             guard marker.showLabel, let label = layout[marker.id], label.visible else { return nil }
-            return ARMarkerProjection(marker: marker, center: label.center,
+            return ARMarkerProjection(marker: marker,
+                anchor: inputs.first(where: { $0.id == marker.id })?.anchor ?? label.center,
+                center: label.center,
                 labelSize: inputs.first(where: { $0.id == marker.id })?.size ?? BoardPoint(x: 80, y: 36))
         }
+    }
+
+    private func stabilize(_ proposed: [String: PhotoLabel], currentID: String?, immediately: Bool) -> [String: PhotoLabel] {
+        guard !immediately else {
+            visibleLabels = proposed
+            layoutCandidates.removeAll()
+            return proposed
+        }
+        let ids = Set(visibleLabels.keys).union(proposed.keys)
+        for id in ids {
+            let next = proposed[id] ?? PhotoLabel(center: visibleLabels[id]?.center ?? BoardPoint(x: 0, y: 0), visible: false, leader: false)
+            guard id != currentID else {
+                visibleLabels[id] = next
+                layoutCandidates.removeValue(forKey: id)
+                continue
+            }
+            if let old = visibleLabels[id], old.visible == next.visible,
+               (!next.visible || (BoardPoint.distance(old.center, next.center) < 4 && old.leader == next.leader)) {
+                layoutCandidates.removeValue(forKey: id)
+                continue
+            }
+            if let candidate = layoutCandidates[id], candidate.label.visible == next.visible,
+               !next.visible || (BoardPoint.distance(candidate.label.center, next.center) < 4 && candidate.label.leader == next.leader) {
+                let frames = candidate.frames + 1
+                if frames >= 3 {
+                    visibleLabels[id] = next
+                    layoutCandidates.removeValue(forKey: id)
+                } else { layoutCandidates[id] = (next, frames) }
+            } else {
+                layoutCandidates[id] = (next, 1)
+            }
+        }
+        return visibleLabels
     }
 
     func freeze() {
@@ -211,14 +267,18 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
             let world = simd_mul(simd_mul(anchor.transform, correction), SIMD4(Float(local[0]), 0, Float(local[2]), 1))
             return view.project(SIMD3(world.x, world.y, world.z))
         }
-        guard corners.count == 4 else { return }
+        guard corners.count == 4 else {
+            notice = "Не удалось определить края платы в кадре. Наведите камеру на плату целиком и попробуйте снова."
+            return
+        }
         overlayRoot?.isEnabled = false
+        torchWasEnabled = torchEnabled || torchWasEnabled
         setTorch(false)
         view.snapshot(saveToHDR: false) { [weak self] image in
             Task { @MainActor in
                 guard let self else { return }
-                self.overlayRoot?.isEnabled = true
-                guard let image else { self.error = "Не удалось сохранить кадр. Попробуйте ещё раз."; return }
+                self.overlayRoot?.isEnabled = self.status == .tracking && self.anchor?.isTracked == true
+                guard let image else { self.notice = "Не удалось сохранить кадр. Попробуйте ещё раз."; return }
                 let size = BoardPoint(x: image.size.width, y: image.size.height)
                 let normalized = corners.map { BoardPoint(x: $0.x / size.x, y: $0.y / size.y) }
                 self.onFreeze?(image, normalized)
@@ -255,6 +315,7 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
         anchor = nil
         if let overlayRoot, let view { view.scene.removeAnchor(overlayRoot) }
         overlayRoot = nil; contentRoot = nil; projections = []; status = .searching
+        wasTracking = false; visibleLabels.removeAll(); layoutCandidates.removeAll()
     }
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
@@ -267,12 +328,18 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
 
     func sessionWasInterrupted(_ session: ARSession) {
         status = .lost
+        overlayRoot?.isEnabled = false
         projections = []
     }
 
     func sessionInterruptionEnded(_ session: ARSession) {
         guard active, let view, let referenceImage else { return }
         run(view, reference: referenceImage, reset: false)
+    }
+
+    func session(_ session: ARSession, didFailWithError error: Error) {
+        guard active else { return }
+        fail("AR-сессия завершилась с ошибкой: \(error.localizedDescription). Можно продолжить с фотографией платы.")
     }
 }
 
@@ -282,10 +349,10 @@ struct ARBoardView: View {
     @Binding var selectedStepID: String?
     let active: Bool
     let onFreeze: (UIImage, [BoardPoint]) -> Void
-    let onUsePhoto: (String?) -> Void
+    let onUsePhoto: (String?, Bool) -> Void
 
     init(board: Motherboard, assembly: AssemblySession, selectedStepID: Binding<String?>, active: Bool,
-         onFreeze: @escaping (UIImage, [BoardPoint]) -> Void, onUsePhoto: @escaping (String?) -> Void) {
+         onFreeze: @escaping (UIImage, [BoardPoint]) -> Void, onUsePhoto: @escaping (String?, Bool) -> Void) {
         _model = StateObject(wrappedValue: ARBoardModel(board: board, assembly: assembly))
         _selectedStepID = selectedStepID
         self.active = active
@@ -307,7 +374,7 @@ struct ARBoardView: View {
                                 Label("Фонарик", systemImage: model.torchEnabled ? "flashlight.on.fill" : "flashlight.off.fill")
                             }.buttonStyle(.bordered)
                         }
-                        Button("Фото") { onUsePhoto(nil) }.buttonStyle(.bordered)
+                        Button("Фото") { onUsePhoto(nil, false) }.buttonStyle(.bordered)
                         Button { model.freeze() } label: { Label("Заморозить", systemImage: "camera.viewfinder") }
                             .buttonStyle(.borderedProminent).disabled(model.status != .tracking)
                     }
@@ -322,7 +389,7 @@ struct ARBoardView: View {
         .onChange(of: active) { _, value in model.setActive(value) }
         .onChange(of: assembly.completedSteps) { _, _ in model.updateMarkers() }
         .onChange(of: assembly.answers) { _, _ in model.updateMarkers() }
-        .onChange(of: model.error) { _, message in if message != nil { onUsePhoto(message) } }
+        .onChange(of: model.error) { _, message in if message != nil { onUsePhoto(message, model.needsSettings) } }
         .onDisappear { model.setActive(false) }
     }
 
@@ -331,7 +398,8 @@ struct ARBoardView: View {
             Text(statusTitle).font(.headline)
             Text(statusMessage).font(.subheadline)
             if model.status == .searching && model.secondsSearching >= 10 {
-                Text("Держите плату целиком в кадре и избегайте бликов.").font(.caption)
+                Text("Поддерживается \(model.board.name). Используйте рассеянный свет и держите плату целиком в кадре на расстоянии 30–60 см.")
+                    .font(.caption)
             }
             if model.status == .tracking, let step = model.currentUnmarkedStep {
                 Button { selectedStepID = step.id } label: {
@@ -339,7 +407,11 @@ struct ARBoardView: View {
                 }.font(.subheadline.bold())
             }
             if model.status == .searching && model.secondsSearching >= 25 {
-                Button("Продолжить с фото") { onUsePhoto(nil) }.font(.subheadline.bold())
+                Button("Продолжить с фото") { onUsePhoto(nil, false) }.font(.subheadline.bold())
+            }
+            if let notice = model.notice {
+                Text(notice).font(.caption).foregroundStyle(.orange)
+                Button("Понятно") { model.notice = nil }.font(.caption.bold())
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -366,6 +438,16 @@ struct ARBoardView: View {
             }
             let layout = BoardMarkers.layout(inputs, viewport: BoardPoint(x: proxy.size.width, y: proxy.size.height))
             ZStack {
+                Canvas { context, _ in
+                    for projection in model.projections {
+                        guard let label = layout[projection.marker.id], label.visible, label.leader else { continue }
+                        var line = Path()
+                        line.move(to: CGPoint(x: projection.anchor.x, y: projection.anchor.y))
+                        line.addLine(to: CGPoint(x: label.center.x, y: label.center.y))
+                        context.stroke(line, with: .color(color(projection.marker.state)), lineWidth: 1.5)
+                    }
+                }
+                .allowsHitTesting(false)
                 ForEach(model.projections) { projection in
                     if let label = layout[projection.marker.id], label.visible {
                         Button { selectedStepID = projection.marker.stepID } label: {
@@ -376,6 +458,9 @@ struct ARBoardView: View {
                         }
                         .buttonStyle(.plain)
                         .position(x: label.center.x, y: label.center.y)
+                        .accessibilityLabel(projection.marker.label)
+                        .accessibilityValue(projection.marker.state == .done ? "Выполнено" :
+                            (projection.marker.state == .current ? "Текущий шаг" : "Не выполнено"))
                     }
                 }
             }
