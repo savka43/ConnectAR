@@ -173,29 +173,17 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
         let markers = BoardMarkers.make(board: board, plan: assembly.steps, done: assembly.completedSteps)
         for marker in markers {
             let rect = marker.rect
-            let edgeColor: UIColor
-            let fillColor: UIColor
+            let highlight: UIColor
             switch marker.state {
             case .current:
-                edgeColor = .systemYellow
-                fillColor = UIColor.systemYellow.withAlphaComponent(0.14)
+                highlight = UIColor(red: 1, green: 179 / 255, blue: 0, alpha: 0.6)
             case .pending:
-                edgeColor = .systemTeal
-                fillColor = UIColor.systemTeal.withAlphaComponent(0.06)
+                highlight = UIColor(red: 15 / 255, green: 157 / 255, blue: 143 / 255, alpha: 0.35)
             case .done:
-                edgeColor = UIColor.systemGray.withAlphaComponent(0.5)
-                fillColor = UIColor.systemGray.withAlphaComponent(0.025)
+                highlight = UIColor(red: 138 / 255, green: 147 / 255, blue: 153 / 255, alpha: 0.15)
             }
             addPlane(x: rect.x, y: rect.y, width: rect.w, height: rect.h,
-                     elevation: 0.001, color: fillColor, to: contentRoot)
-            addPlane(x: rect.x, y: rect.y, width: rect.w, height: 1.6,
-                     elevation: 0.002, color: edgeColor, to: contentRoot)
-            addPlane(x: rect.x, y: rect.y + rect.h - 1.6, width: rect.w, height: 1.6,
-                     elevation: 0.002, color: edgeColor, to: contentRoot)
-            addPlane(x: rect.x, y: rect.y, width: 1.6, height: rect.h,
-                     elevation: 0.002, color: edgeColor, to: contentRoot)
-            addPlane(x: rect.x + rect.w - 1.6, y: rect.y, width: 1.6, height: rect.h,
-                     elevation: 0.002, color: edgeColor, to: contentRoot)
+                     elevation: 0.001, color: highlight, to: contentRoot)
         }
     }
 
