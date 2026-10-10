@@ -32,6 +32,7 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
     private var referenceImage: ARReferenceImage?
     private var anchor: ARImageAnchor?
     private var contentRoot: Entity?
+    private var currentHighlight: ModelEntity?
     private var overlayRoot: AnchorEntity?
     private var active = false
     private var configured = false
@@ -170,6 +171,7 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
     func updateMarkers() {
         guard let contentRoot else { return }
         contentRoot.children.removeAll()
+        currentHighlight = nil
         let markers = BoardMarkers.make(board: board, plan: assembly.steps, done: assembly.completedSteps)
         for marker in markers {
             let rect = marker.rect
@@ -182,18 +184,25 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
             case .done:
                 highlight = UIColor(red: 138 / 255, green: 147 / 255, blue: 153 / 255, alpha: 0.15)
             }
-            addPlane(x: rect.x, y: rect.y, width: rect.w, height: rect.h,
-                     elevation: 0.001, color: highlight, to: contentRoot)
+            let plane = addPlane(x: rect.x, y: rect.y, width: rect.w, height: rect.h,
+                                 elevation: 0.001, color: highlight, to: contentRoot)
+            if marker.state == .current { currentHighlight = plane }
         }
     }
 
     private func addPlane(x: Double, y: Double, width: Double, height: Double,
-                          elevation: Float, color: UIColor, to parent: Entity) {
+                          elevation: Float, color: UIColor, to parent: Entity) -> ModelEntity {
         let mesh = MeshResource.generatePlane(width: Float(width / 1000), depth: Float(height / 1000))
         let entity = ModelEntity(mesh: mesh, materials: [UnlitMaterial(color: color)])
         let position = BoardGeometry.anchor(BoardPoint(x: x + width / 2, y: y + height / 2), physical: board.physical)
         entity.position = SIMD3(Float(position[0]), elevation, Float(position[2]))
         parent.addChild(entity)
+        return entity
+    }
+
+    private func updateHighlightPulse(timestamp: TimeInterval) {
+        let pulse = Float(0.72 + 0.28 * (0.5 + 0.5 * sin(timestamp * 2 * .pi / 1.8)))
+        currentHighlight?.components.set(OpacityComponent(opacity: pulse))
     }
 
     private func updateProjection(frame: ARFrame, imageAnchor: ARImageAnchor?) {
@@ -211,6 +220,7 @@ private final class ARBoardModel: NSObject, ObservableObject, ARSessionDelegate 
         }
         status = .tracking
         overlayRoot?.isEnabled = true
+        updateHighlightPulse(timestamp: frame.timestamp)
         let correction = Transform(rotation: simd_quatf(angle: -.pi / 2, axis: SIMD3<Float>(1, 0, 0))).matrix
         let stableImageTransform = smooth(imageAnchor.transform, timestamp: frame.timestamp)
         let boardToWorld = simd_mul(stableImageTransform, correction)
